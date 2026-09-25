@@ -31,12 +31,15 @@ ALLOWED_HOSTS = []
 # Application definition
 
 INSTALLED_APPS = [
+    'daphne',
     'django.contrib.admin',
     'django.contrib.auth',
     'django.contrib.contenttypes',
     'django.contrib.sessions',
     'django.contrib.messages',
     'django.contrib.staticfiles',
+    # Third-party apps
+    'channels',
     # Project apps
     'accounts',
     'tracker',
@@ -132,3 +135,30 @@ MAILERS = {
 
 # Custom User Model
 AUTH_USER_MODEL = 'accounts.User'
+
+
+# ASGI Application Entrypoint
+ASGI_APPLICATION = 'config.asgi.application'
+
+# Channel Layer Configuration
+# Uses Redis if REDIS_URL environment variable is set (e.g., in AWS/Docker);
+# falls back to InMemoryChannelLayer for zero-configuration local Windows development.
+import os
+
+REDIS_URL = os.environ.get('REDIS_URL')
+
+if REDIS_URL:
+    CHANNEL_LAYERS = {
+        'default': {
+            'BACKEND': 'channels_redis.core.RedisChannelLayer',
+            'CONFIG': {
+                'hosts': [REDIS_URL],
+            },
+        },
+    }
+else:
+    CHANNEL_LAYERS = {
+        'default': {
+            'BACKEND': 'channels.layers.InMemoryChannelLayer',
+        },
+    }
