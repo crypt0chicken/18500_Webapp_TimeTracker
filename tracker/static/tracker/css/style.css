@@ -1,0 +1,644 @@
+/* ==========================================================================
+   Pool Deck Time Tracker - Global & Wet-Deck Ergonomics
+   ========================================================================== */
+
+:root {
+    --bg-color: #0f172a;
+    --surface-color: #1e293b;
+    --surface-hover: #334155;
+    --surface-border: #475569;
+    --text-primary: #f8fafc;
+    --text-secondary: #94a3b8;
+    --brand-primary: #0284c7;
+    --brand-primary-hover: #0369a1;
+    --brand-accent: #38bdf8;
+    --state-success: #10b981;
+    --state-warning: #f59e0b;
+    --state-danger: #ef4444;
+    --touch-target-min: 64px;
+}
+
+* {
+    box-sizing: border-box;
+    margin: 0;
+    padding: 0;
+    -webkit-tap-highlight-color: transparent;
+}
+
+body {
+    font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Helvetica, Arial, sans-serif;
+    background-color: var(--bg-color);
+    color: var(--text-primary);
+    font-size: 16px;
+    line-height: 1.5;
+    min-height: 100vh;
+    padding-bottom: 40px;
+    touch-action: manipulation;
+    user-select: none;
+    -webkit-user-select: none;
+}
+
+/* ==========================================================================
+   Wet-Deck Touch Primitives (>= 64px Target Size)
+   ========================================================================== */
+
+.touch-btn {
+    min-height: var(--touch-target-min);
+    min-width: var(--touch-target-min);
+    padding: 12px 20px;
+    font-size: 18px;
+    font-weight: 700;
+    border-radius: 12px;
+    border: 2px solid var(--surface-border);
+    background-color: var(--surface-color);
+    color: var(--text-primary);
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    gap: 10px;
+    cursor: pointer;
+    touch-action: manipulation;
+    transition: background-color 0.15s ease, border-color 0.15s ease, transform 0.05s ease;
+}
+
+.touch-btn:active {
+    transform: scale(0.97);
+    background-color: var(--surface-hover);
+}
+
+.touch-btn-primary {
+    background-color: var(--brand-primary);
+    border-color: var(--brand-accent);
+    color: #ffffff;
+}
+
+.touch-btn-primary:active {
+    background-color: var(--brand-primary-hover);
+}
+
+.touch-card {
+    min-height: var(--touch-target-min);
+    padding: 16px;
+    border-radius: 14px;
+    border: 2px solid var(--surface-border);
+    background-color: var(--surface-color);
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    touch-action: manipulation;
+    cursor: pointer;
+}
+
+.touch-card:active {
+    background-color: var(--surface-hover);
+    border-color: var(--brand-accent);
+}
+
+/* ==========================================================================
+   Layout Containers & Header
+   ========================================================================== */
+
+.container {
+    max-width: 1200px;
+    margin: 0 auto;
+    padding: 16px;
+}
+
+header.deck-header {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    padding: 16px 20px;
+    background-color: var(--surface-color);
+    border-bottom: 2px solid var(--surface-border);
+    position: sticky;
+    top: 0;
+    z-index: 50;
+}
+
+/* ==========================================================================
+   Deck Staging & Pairing Panel Layouts
+   ========================================================================== */
+
+.staging-grid {
+    display: grid;
+    grid-template-columns: 1fr;
+    gap: 24px;
+    margin-top: 16px;
+}
+
+@media (min-width: 900px) {
+    .staging-grid {
+        grid-template-columns: 340px 1fr;
+    }
+}
+
+.panel {
+    background-color: var(--surface-color);
+    border: 2px solid var(--surface-border);
+    border-radius: 16px;
+    padding: 20px;
+}
+
+.panel-title {
+    font-size: 20px;
+    font-weight: 800;
+    margin-bottom: 16px;
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+}
+
+/* Tag Pool Grid */
+.tag-pool-grid {
+    display: grid;
+    grid-template-columns: repeat(auto-fill, minmax(130px, 1fr));
+    gap: 12px;
+}
+
+.tag-tile {
+    min-height: var(--touch-target-min);
+    border-radius: 12px;
+    border: 2px solid var(--surface-border);
+    background-color: #0b1329;
+    color: var(--text-primary);
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    justify-content: center;
+    padding: 10px;
+    font-weight: 700;
+    cursor: pointer;
+    touch-action: manipulation;
+}
+
+.tag-tile:active {
+    background-color: var(--surface-hover);
+    border-color: var(--brand-accent);
+}
+
+.tag-tile.assigned {
+    opacity: 0.55;
+    border-style: dashed;
+}
+
+/* Battery Badges */
+.badge-battery {
+    font-size: 13px;
+    padding: 2px 8px;
+    border-radius: 6px;
+    font-weight: 600;
+    margin-top: 4px;
+}
+
+.batt-good { background-color: rgba(16, 185, 129, 0.2); color: var(--state-success); }
+.batt-med  { background-color: rgba(245, 158, 11, 0.2); color: var(--state-warning); }
+.batt-low  { background-color: rgba(239, 68, 68, 0.2); color: var(--state-danger); }
+
+/* Lane Layout Grid */
+.lane-grid {
+    display: grid;
+    grid-template-columns: repeat(auto-fill, minmax(280px, 1fr));
+    gap: 16px;
+}
+
+.lane-card {
+    min-height: 110px;
+    border-radius: 14px;
+    border: 2px solid var(--surface-border);
+    background-color: #131d31;
+    padding: 16px;
+    display: flex;
+    flex-direction: column;
+    justify-content: space-between;
+}
+
+.lane-header {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    margin-bottom: 8px;
+}
+
+.lane-number-badge {
+    font-size: 18px;
+    font-weight: 900;
+    color: var(--brand-accent);
+}
+
+/* Swimmer Roster List */
+.roster-list {
+    display: flex;
+    flex-direction: column;
+    gap: 12px;
+    max-height: 520px;
+    overflow-y: auto;
+    padding-right: 4px;
+}
+
+.swimmer-row {
+    min-height: var(--touch-target-min);
+    padding: 12px 16px;
+    border-radius: 12px;
+    border: 2px solid var(--surface-border);
+    background-color: #131d31;
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    cursor: pointer;
+}
+
+.swimmer-row:active {
+    background-color: var(--surface-hover);
+    border-color: var(--brand-accent);
+}
+
+.pairing-guide-banner {
+    background: linear-gradient(135deg, #1e293b, #0f172a);
+    border: 2px solid var(--brand-primary);
+    border-radius: 16px;
+    padding: 16px 20px;
+    display: flex;
+    flex-wrap: wrap;
+    align-items: center;
+    justify-content: space-between;
+    gap: 16px;
+    box-shadow: 0 4px 20px rgba(2, 132, 199, 0.2);
+}
+
+.guide-step-chip {
+    display: inline-flex;
+    align-items: center;
+    gap: 8px;
+    padding: 8px 14px;
+    border-radius: 10px;
+    font-size: 15px;
+    font-weight: 700;
+    border: 2px solid var(--surface-border);
+    background-color: var(--surface-color);
+}
+
+.guide-step-chip.active {
+    border-color: var(--brand-accent);
+    background-color: rgba(56, 189, 248, 0.15);
+    color: var(--brand-accent);
+}
+
+.guide-step-chip.completed {
+    border-color: var(--state-success);
+    background-color: rgba(16, 185, 129, 0.15);
+    color: var(--state-success);
+}
+
+/* Selected state high-contrast outlines */
+.tag-tile.selected {
+    border-color: var(--brand-accent) !important;
+    background-color: rgba(56, 189, 248, 0.2) !important;
+    box-shadow: 0 0 0 3px rgba(56, 189, 248, 0.4);
+    transform: scale(1.02);
+}
+
+.swimmer-row.selected {
+    border-color: var(--brand-accent) !important;
+    background-color: rgba(56, 189, 248, 0.18) !important;
+    box-shadow: 0 0 0 3px rgba(56, 189, 248, 0.4);
+}
+
+.lane-card.ready-target {
+    border-color: var(--state-success) !important;
+    background-color: rgba(16, 185, 129, 0.1) !important;
+    animation: pulseBorder 1.5s infinite;
+}
+
+@keyframes pulseBorder {
+    0% { box-shadow: 0 0 0 0 rgba(16, 185, 129, 0.4); }
+    70% { box-shadow: 0 0 0 6px rgba(16, 185, 129, 0); }
+    100% { box-shadow: 0 0 0 0 rgba(16, 185, 129, 0); }
+}
+
+/* Staged Swimmer chip inside Lane Card */
+.lane-swimmer-chip {
+    background-color: var(--surface-color);
+    border: 2px solid var(--surface-border);
+    border-radius: 10px;
+    padding: 8px 12px;
+    margin-top: 8px;
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 8px;
+}
+
+.chip-remove-btn {
+    min-height: 36px;
+    min-width: 36px;
+    border-radius: 8px;
+    border: 1px solid var(--state-danger);
+    background-color: rgba(239, 68, 68, 0.15);
+    color: var(--state-danger);
+    font-weight: 800;
+    cursor: pointer;
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    touch-action: manipulation;
+}
+
+.chip-remove-btn:active {
+    background-color: var(--state-danger);
+    color: #ffffff;
+}
+
+
+
+/* ==========================================================================
+   Step 4.3: 1-Tap Swap Tag Touch Modal
+   ========================================================================== */
+
+[x-cloak] {
+    display: none !important;
+}
+
+.modal-backdrop {
+    position: fixed;
+    top: 0;
+    left: 0;
+    right: 0;
+    bottom: 0;
+    background-color: rgba(10, 15, 29, 0.82);
+    backdrop-filter: blur(6px);
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    z-index: 1000;
+    padding: 16px;
+    touch-action: manipulation;
+}
+
+.modal-dialog {
+    width: 100%;
+    max-width: 520px;
+    max-height: 85vh;
+    background-color: var(--surface-color);
+    border: 2px solid var(--surface-border);
+    border-radius: 20px;
+    box-shadow: 0 10px 40px rgba(0, 0, 0, 0.6);
+    display: flex;
+    flex-direction: column;
+    overflow: hidden;
+    animation: modalPopIn 0.15s ease-out;
+}
+
+@keyframes modalPopIn {
+    0% { transform: scale(0.95); opacity: 0; }
+    100% { transform: scale(1.0); opacity: 1; }
+}
+
+.modal-header {
+    padding: 18px 20px;
+    border-bottom: 2px solid var(--surface-border);
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    background-color: rgba(15, 23, 42, 0.5);
+}
+
+.modal-body {
+    padding: 20px;
+    overflow-y: auto;
+    display: flex;
+    flex-direction: column;
+    gap: 16px;
+}
+
+.swap-option-btn {
+    min-height: 64px;
+    width: 100%;
+    padding: 14px 18px;
+    border-radius: 14px;
+    border: 2px solid var(--surface-border);
+    background-color: #0b1329;
+    color: var(--text-primary);
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    font-size: 17px;
+    font-weight: 700;
+    cursor: pointer;
+    touch-action: manipulation;
+    transition: transform 0.05s ease, border-color 0.15s ease, background-color 0.15s ease;
+}
+
+.swap-option-btn:active {
+    transform: scale(0.98);
+    border-color: var(--brand-accent);
+    background-color: var(--surface-hover);
+}
+
+.swap-option-btn.current {
+    opacity: 0.5;
+    border-style: dashed;
+    cursor: not-allowed;
+}
+
+.btn-icon-close {
+    min-height: 48px;
+    min-width: 48px;
+    border-radius: 10px;
+    border: 2px solid var(--surface-border);
+    background-color: transparent;
+    color: var(--text-secondary);
+    font-size: 20px;
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    cursor: pointer;
+    touch-action: manipulation;
+}
+
+.btn-icon-close:active {
+    background-color: var(--surface-hover);
+    color: var(--text-primary);
+}
+
+.action-chip-btn {
+    min-height: 40px;
+    padding: 4px 12px;
+    font-size: 13px;
+    font-weight: 700;
+    border-radius: 8px;
+    border: 1px solid var(--brand-accent);
+    background-color: rgba(56, 189, 248, 0.12);
+    color: var(--brand-accent);
+    cursor: pointer;
+    touch-action: manipulation;
+    display: inline-flex;
+    align-items: center;
+    gap: 6px;
+}
+
+.action-chip-btn:active {
+    background-color: var(--brand-primary);
+    color: #ffffff;
+}
+
+
+/* ==========================================================================
+   Step 4.4: Live Battery, Signal Status & Tag Pool Tabs
+   ========================================================================== */
+
+/* Pool Segmented Tabs */
+.pool-tabs {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    background-color: #0b1329;
+    padding: 6px;
+    border-radius: 12px;
+    border: 2px solid var(--surface-border);
+    margin-bottom: 14px;
+}
+
+.pool-tab-btn {
+    flex: 1;
+    min-height: 44px;
+    border-radius: 8px;
+    border: none;
+    background: transparent;
+    color: var(--text-secondary);
+    font-size: 14px;
+    font-weight: 700;
+    cursor: pointer;
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    gap: 6px;
+    touch-action: manipulation;
+    transition: background-color 0.15s ease, color 0.15s ease;
+}
+
+.pool-tab-btn.active {
+    background-color: var(--brand-primary);
+    color: #ffffff;
+    box-shadow: 0 2px 8px rgba(2, 132, 199, 0.4);
+}
+
+.tab-badge {
+    padding: 2px 8px;
+    border-radius: 10px;
+    font-size: 12px;
+    font-weight: 800;
+    background-color: rgba(255, 255, 255, 0.15);
+}
+
+/* Enhanced Tag Card Layout */
+.tag-tile-enhanced {
+    min-height: 84px;
+    border-radius: 14px;
+    border: 2px solid var(--surface-border);
+    background-color: #0b1329;
+    color: var(--text-primary);
+    display: flex;
+    flex-direction: column;
+    justify-content: space-between;
+    padding: 10px 12px;
+    cursor: pointer;
+    touch-action: manipulation;
+    position: relative;
+    transition: transform 0.05s ease, border-color 0.15s ease, background-color 0.15s ease;
+}
+
+.tag-tile-enhanced:active {
+    transform: scale(0.98);
+    border-color: var(--brand-accent);
+    background-color: var(--surface-hover);
+}
+
+.tag-tile-enhanced.selected {
+    border-color: var(--brand-accent) !important;
+    background-color: rgba(56, 189, 248, 0.2) !important;
+    box-shadow: 0 0 0 3px rgba(56, 189, 248, 0.4);
+    transform: scale(1.02);
+}
+
+.tag-tile-enhanced.assigned {
+    opacity: 0.65;
+    border-style: dashed;
+}
+
+/* Live Online/Offline Status Indicator */
+.status-dot {
+    width: 9px;
+    height: 9px;
+    border-radius: 50%;
+    display: inline-block;
+}
+
+.status-dot.online {
+    background-color: var(--state-success);
+    box-shadow: 0 0 8px var(--state-success);
+    animation: statusPulse 2s infinite;
+}
+
+.status-dot.offline {
+    background-color: #64748b;
+}
+
+@keyframes statusPulse {
+    0% { transform: scale(0.95); box-shadow: 0 0 0 0 rgba(16, 185, 129, 0.6); }
+    70% { transform: scale(1.1); box-shadow: 0 0 0 6px rgba(16, 185, 129, 0); }
+    100% { transform: scale(0.95); box-shadow: 0 0 0 0 rgba(16, 185, 129, 0); }
+}
+
+/* Visual Battery Bar Meter */
+.battery-meter-container {
+    display: flex;
+    align-items: center;
+    gap: 6px;
+    width: 100%;
+    margin-top: 4px;
+}
+
+.battery-track {
+    flex: 1;
+    height: 7px;
+    background-color: #334155;
+    border-radius: 4px;
+    overflow: hidden;
+    position: relative;
+}
+
+.battery-fill {
+    height: 100%;
+    border-radius: 4px;
+    transition: width 0.3s ease, background-color 0.3s ease;
+}
+
+.battery-fill.good { background-color: var(--state-success); }
+.battery-fill.med  { background-color: var(--state-warning); }
+.battery-fill.low  { background-color: var(--state-danger); }
+
+/* RF Signal Strength Indicator (4-Bar Meter) */
+.signal-meter {
+    display: inline-flex;
+    align-items: flex-end;
+    gap: 2px;
+    height: 14px;
+}
+
+.signal-bar {
+    width: 3px;
+    border-radius: 1px;
+    background-color: #334155;
+    transition: background-color 0.2s ease;
+}
+
+.signal-bar.bar-1 { height: 4px; }
+.signal-bar.bar-2 { height: 7px; }
+.signal-bar.bar-3 { height: 10px; }
+.signal-bar.bar-4 { height: 14px; }
+
+.signal-bar.active.strong { background-color: var(--brand-accent); }
+.signal-bar.active.good   { background-color: var(--state-success); }
+.signal-bar.active.fair   { background-color: var(--state-warning); }
+.signal-bar.active.weak   { background-color: var(--state-danger); }

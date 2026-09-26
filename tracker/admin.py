@@ -9,6 +9,7 @@ from .models import (
     Repetition,
     LapSplit,
     SystemConfiguration,
+    LaneAssignment,
 )
 
 
@@ -52,7 +53,7 @@ class PracticeSessionAdmin(admin.ModelAdmin):
 
 @admin.register(HardwareTag)
 class HardwareTagAdmin(admin.ModelAdmin):
-    list_display = ('tag_id', 'battery_percentage', 'active_swimmer', 'firmware_version', 'last_seen')
+    list_display = ('tag_id', 'battery_percentage', 'rssi', 'active_swimmer', 'firmware_version', 'last_seen')
     list_filter = ('battery_percentage',)
     search_fields = ('tag_id', 'active_swimmer__user__username')
     actions = ['unassign_selected_tags']
@@ -62,7 +63,11 @@ class HardwareTagAdmin(admin.ModelAdmin):
         updated = queryset.update(active_swimmer=None)
         self.message_user(request, f"{updated} tag(s) successfully unassigned.")
 
-
+@admin.register(LaneAssignment)
+class LaneAssignmentAdmin(admin.ModelAdmin):
+    list_display = ('session', 'lane_number', 'swimmer', 'tag', 'staged_at')
+    list_filter = ('session', 'lane_number')
+    
 admin.site.register(Team)
 admin.site.register(SwimmerProfile)
 admin.site.register(PersonalBest)

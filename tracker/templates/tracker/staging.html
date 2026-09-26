@@ -1,0 +1,666 @@
+{% extends "tracker/base.html" %}
+
+{% block title %}Deck Staging - {{ session.team.name }}{% endblock %}
+
+{% block session_subtitle %}
+    {{ session.team.name }} &bull; {{ session.get_pool_course_display }} &bull; Coach {{ session.coach.username }}
+{% endblock %}
+
+{% block header_actions %}
+    <a href="{% url 'tracker:coach_session' session.id %}" class="touch-btn touch-btn-primary" style="text-decoration: none;">
+        Launch Dashboard &rarr;
+    </a>
+{% endblock %}
+
+{% block content %}
+<div
+    x-data="deckStaging({
+        sessionId: {{ session.id }},
+        csrfToken: '{{ csrf_token }}',
+        tags: {{ tags_json|safe }},
+        swimmers: {{ swimmers_json|safe }},
+        assignments: {{ assignments_json|safe }}
+    })"
+    class="staging-container"
+    style="display: flex; flex-direction: column; gap: 20px;"
+>
+    <!-- Interactive 3-Tap Guidance Banner -->
+    <div class="pairing-guide-banner">
+        <div style="display: flex; flex-direction: column; gap: 6px;">
+            <div style="font-size: 14px; text-transform: uppercase; letter-spacing: 1px; color: var(--text-secondary); font-weight: 800;">
+                Rapid 3-Tap Deck Pairing
+            </div>
+            <div style="font-size: 19px; font-weight: 800;" x-text="guideInstructionText()"></div>
+        </div>
+
+        <div style="display: flex; align-items: center; gap: 10px; flex-wrap: wrap;">
+            <!-- Step 1 Indicator -->
+            <div class="guide-step-chip" :class="selectedTag ? 'completed' : 'active'">
+                <span>1. Tag:</span>
+                <span x-text="selectedTag ? selectedTag.tag_id : 'Select Tag'"></span>
+            </div>
+
+            <!-- Step 2 Indicator -->
+            <div class="guide-step-chip" :class="selectedSwimmer ? 'completed' : (selectedTag ? 'active' : '')">
+                <span>2. Swimmer:</span>
+                <span x-text="selectedSwimmer ? selectedSwimmer.name : 'Select Swimmer'"></span>
+            </div>
+
+            <!-- Step 3 Indicator -->
+            <div class="guide-step-chip" :class="(selectedTag && selectedSwimmer) ? 'active' : ''">
+                <span>3. Lane:</span>
+                <span x-text="isReadyToAssign() ? 'Tap Lane (1-8)' : 'Waiting'"></span>
+            </div>
+
+            <button
+                type="button"
+                class="touch-btn"
+                style="min-height: 48px; padding: 6px 14px; font-size: 14px;"
+                x-show="selectedTag || selectedSwimmer"
+                @click="resetSelection()"
+            >
+                Clear
+            </button>
+        </div>
+    </div>
+
+    <!-- Main Grid -->
+    <div class="staging-grid">
+        <!-- Left Column: Hardware Tag Pool Overview (Step 4.4) -->
+        <div class="panel">
+            <div class="panel-title">
+                <span>Hardware Tags</span>
+                <span style="font-size: 14px; color: var(--text-secondary);" x-text="tags.length + ' Registered'"></span>
+            </div>
+
+            <!-- Pool Filter Tabs -->
+            <div class="pool-tabs">
+                <button
+                    type="button"
+                    class="pool-tab-btn"
+                    :class="{ 'active': activeTab === 'unassigned' }"
+                    @click="activeTab = 'unassigned'"
+                >
+                    <span>Unassigned</span>
+                    <span class="tab-badge" x-text="unassignedTags().length"></span>
+                </button>
+                <button
+                    type="button"
+                    class="pool-tab-btn"
+                    :class="{ 'active': activeTab === 'all' }"
+                    @click="activeTab = 'all'"
+                >
+                    <span>All Tags</span>
+                    <span class="tab-badge" x-text="tags.length"></span>
+                </button>
+                <button
+                    type="button"
+                    class="pool-tab-btn"
+                    :class="{ 'active': activeTab === 'assigned' }"
+                    @click="activeTab = 'assigned'"
+                >
+                    <span>Assigned</span>
+                    <span class="tab-badge" x-text="tags.length - unassignedTags().length"></span>
+                </button>
+            </div>
+
+            <!-- Filtered Tag Pool Grid -->
+            <div class="tag-pool-grid">
+                <template x-for="tag in filteredTags()" :key="tag.id">
+                    <button
+                        type="button"
+                        class="tag-tile-enhanced"
+                        :class="{
+                            'selected': selectedTag && selectedTag.id === tag.id,
+                            'assigned': isTagAssigned(tag.id)
+                        }"
+                        @click="handleTagTap(tag)"
+                    >
+                        <!-- Top Row: Tag ID + Status Dot + Signal Meter -->
+                        <div style="display: flex; align-items: center; justify-content: space-between; width: 100%;">
+                            <div style="display: flex; align-items: center; gap: 6px;">
+                                <span class="status-dot" :class="tag.is_online ? 'online' : 'offline'" :title="tag.is_online ? 'Online' : 'Offline'"></span>
+                                <span style="font-size: 16px; font-weight: 800;" x-text="tag.tag_id"></span>
+                            </div>
+
+                            <!-- 4-Bar Signal Indicator -->
+                            <div class="signal-meter" :title="(tag.rssi || -99) + ' dBm'">
+                                <div class="signal-bar bar-1" :class="{ 'active': getSignalLevel(tag.rssi) >= 1, [getSignalClass(tag.rssi)]: true }"></div>
+                                <div class="signal-bar bar-2" :class="{ 'active': getSignalLevel(tag.rssi) >= 2, [getSignalClass(tag.rssi)]: true }"></div>
+                                <div class="signal-bar bar-3" :class="{ 'active': getSignalLevel(tag.rssi) >= 3, [getSignalClass(tag.rssi)]: true }"></div>
+                                <div class="signal-bar bar-4" :class="{ 'active': getSignalLevel(tag.rssi) >= 4, [getSignalClass(tag.rssi)]: true }"></div>
+                            </div>
+                        </div>
+
+                        <!-- Middle Row: Swimmer Label or Spare Badge -->
+                        <div style="margin: 4px 0; text-align: left; width: 100%;">
+                            <span
+                                x-show="getAssignedSwimmerNameForTag(tag.tag_id)"
+                                style="font-size: 12px; font-weight: 700; color: var(--brand-accent);"
+                                x-text="getAssignedSwimmerNameForTag(tag.tag_id)"
+                            ></span>
+                            <span
+                                x-show="!getAssignedSwimmerNameForTag(tag.tag_id)"
+                                style="font-size: 11px; font-weight: 600; color: var(--text-secondary); text-transform: uppercase;"
+                            >
+                                Spare Tag
+                            </span>
+                        </div>
+
+                        <!-- Bottom Row: Battery Meter Bar & Percentage -->
+                        <div class="battery-meter-container">
+                            <div class="battery-track">
+                                <div
+                                    class="battery-fill"
+                                    :class="tag.battery_percentage >= 70 ? 'good' : (tag.battery_percentage >= 30 ? 'med' : 'low')"
+                                    :style="'width: ' + Math.max(8, tag.battery_percentage) + '%;'"
+                                ></div>
+                            </div>
+                            <span
+                                style="font-size: 12px; font-weight: 700; min-width: 34px; text-align: right;"
+                                :class="tag.battery_percentage >= 70 ? 'batt-good' : (tag.battery_percentage >= 30 ? 'batt-med' : 'batt-low')"
+                                x-text="tag.battery_percentage + '%'"
+                            ></span>
+                        </div>
+                    </button>
+                </template>
+            </div>
+
+            <div
+                x-show="filteredTags().length === 0"
+                style="color: var(--text-secondary); text-align: center; padding: 24px 0; font-size: 14px;"
+            >
+                No tags match the selected pool filter.
+            </div>
+        </div>
+
+        <!-- Right Column: Lane Layout & Team Roster -->
+        <div style="display: flex; flex-direction: column; gap: 24px;">
+            <!-- Active Lanes (1 - 8) -->
+            <div class="panel">
+                <div class="panel-title">
+                    <span>Pool Lanes (1 &ndash; 8)</span>
+                    <span
+                        style="font-size: 14px; color: var(--state-success); font-weight: 700;"
+                        x-show="isReadyToAssign()"
+                    >
+                        &larr; Tap Any Lane to Confirm Assignment
+                    </span>
+                </div>
+
+                <div class="lane-grid">
+                    {% for lane_num in lanes %}
+                        <div
+                            class="lane-card"
+                            :class="{ 'ready-target': isReadyToAssign() }"
+                            @click="handleLaneTap({{ lane_num }})"
+                            data-lane="{{ lane_num }}"
+                        >
+                            <div class="lane-header">
+                                <span class="lane-number-badge">LANE {{ lane_num }}</span>
+                                <span
+                                    style="font-size: 13px; color: var(--text-secondary);"
+                                    x-text="getLaneSwimmers({{ lane_num }}).length + ' Staged'"
+                                ></span>
+                            </div>
+
+                            <!-- List of Swimmers Staged in this Lane -->
+                            <div style="display: flex; flex-direction: column; gap: 8px;">
+                                <template x-for="item in getLaneSwimmers({{ lane_num }})" :key="item.swimmer_id">
+                                    <div class="lane-swimmer-chip">
+                                        <div>
+                                            <div style="font-weight: 700; font-size: 15px;" x-text="item.swimmer_name"></div>
+                                            <div style="font-size: 12px; color: var(--brand-accent);" x-text="'Tag: ' + item.tag_id + ' (' + item.battery_percentage + '%)'"></div>
+                                        </div>
+                                        <div style="display: flex; align-items: center; gap: 6px;">
+                                            <button
+                                                type="button"
+                                                class="action-chip-btn"
+                                                title="Swap to another tag"
+                                                @click.stop="openSwapModal(item.swimmer_id)"
+                                            >
+                                                Swap Tag
+                                            </button>
+                                            <button
+                                                type="button"
+                                                class="chip-remove-btn"
+                                                title="Unassign swimmer"
+                                                @click.stop="unassignSwimmer(item.swimmer_id)"
+                                            >
+                                                ✕
+                                            </button>
+                                        </div>
+                                    </div>
+                                </template>
+
+                                <div
+                                    x-show="getLaneSwimmers({{ lane_num }}).length === 0"
+                                    style="font-size: 13px; color: var(--text-secondary); text-align: center; padding: 12px 0;"
+                                >
+                                    Empty
+                                </div>
+                            </div>
+
+                            <button
+                                type="button"
+                                class="touch-btn"
+                                style="width: 100%; min-height: 48px; font-size: 14px; margin-top: 10px;"
+                                :class="{ 'touch-btn-primary': isReadyToAssign() }"
+                            >
+                                <span x-text="isReadyToAssign() ? 'Assign to Lane {{ lane_num }}' : '+ Tap to Assign'"></span>
+                            </button>
+                        </div>
+                    {% endfor %}
+                </div>
+            </div>
+
+            <!-- Team Roster -->
+            <div class="panel">
+                <div class="panel-title">
+                    <span>Team Roster (<span x-text="swimmers.length"></span>)</span>
+                    <span style="font-size: 14px; color: var(--text-secondary);">Tap Swimmer to Select</span>
+                </div>
+
+                <div class="roster-list">
+                    <template x-for="swimmer in swimmers" :key="swimmer.id">
+                        <div
+                            class="swimmer-row"
+                            :class="{ 'selected': selectedSwimmer && selectedSwimmer.id === swimmer.id }"
+                            @click="handleSwimmerTap(swimmer)"
+                        >
+                            <div>
+                                <div style="font-weight: 700; font-size: 17px;" x-text="swimmer.name"></div>
+                                <div style="font-size: 13px; color: var(--text-secondary);">
+                                    Threshold: <span x-text="swimmer.threshold_velocity.toFixed(2)"></span> m/s
+                                    <span x-show="swimmer.lane_number" style="color: var(--brand-accent); font-weight: 600;" x-text="' &bull; Lane ' + swimmer.lane_number"></span>
+                                </div>
+                            </div>
+                            <div style="display: flex; align-items: center; gap: 8px;">
+                                <span
+                                    class="touch-btn"
+                                    style="min-height: 48px; padding: 6px 14px; font-size: 14px;"
+                                    :style="swimmer.tag_id ? 'border-color: var(--state-success); color: var(--state-success);' : 'color: var(--text-secondary);'"
+                                    x-text="swimmer.tag_id ? 'Tag: ' + swimmer.tag_id : 'No Tag'"
+                                ></span>
+                                <button
+                                    type="button"
+                                    class="action-chip-btn"
+                                    x-show="swimmer.tag_id"
+                                    @click.stop="openSwapModal(swimmer.id)"
+                                >
+                                    Swap
+                                </button>
+                            </div>
+                        </div>
+                    </template>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <!-- 1-Tap Swap Tag Touch Modal -->
+    <div
+        class="modal-backdrop"
+        x-show="swapModalOpen"
+        x-cloak
+        @click.self="closeSwapModal()"
+        @keydown.escape.window="closeSwapModal()"
+    >
+        <div class="modal-dialog">
+            <div class="modal-header">
+                <div>
+                    <h2 style="font-size: 20px; font-weight: 800;">Swap Hardware Tag</h2>
+                    <p style="font-size: 14px; color: var(--text-secondary);">
+                        Swimmer: <strong style="color: var(--text-primary);" x-text="swimmerToSwap ? swimmerToSwap.name : ''"></strong>
+                        &bull; Active: <span style="color: var(--brand-accent);" x-text="swimmerToSwap ? (swimmerToSwap.tag_id || 'None') : ''"></span>
+                    </p>
+                </div>
+                <button type="button" class="btn-icon-close" @click="closeSwapModal()">✕</button>
+            </div>
+
+            <div class="modal-body">
+                <div style="font-size: 14px; font-weight: 700; color: var(--text-secondary); text-transform: uppercase; letter-spacing: 0.5px;">
+                    Tap Replacement Tag (Mid-Session Swap)
+                </div>
+
+                <div style="display: flex; flex-direction: column; gap: 10px;">
+                    <template x-for="tag in availableSpareTags()" :key="tag.id">
+                        <button
+                            type="button"
+                            class="swap-option-btn"
+                            :class="{ 'current': swimmerToSwap && swimmerToSwap.tag_id === tag.tag_id }"
+                            :disabled="swimmerToSwap && swimmerToSwap.tag_id === tag.tag_id"
+                            @click="executeSwap(tag.tag_id)"
+                        >
+                            <div style="display: flex; align-items: center; gap: 12px;">
+                                <span style="font-size: 19px; font-weight: 800;" x-text="tag.tag_id"></span>
+                                <span
+                                    class="badge-battery"
+                                    :class="tag.battery_percentage >= 70 ? 'batt-good' : (tag.battery_percentage >= 30 ? 'batt-med' : 'batt-low')"
+                                    x-text="tag.battery_percentage + '% Battery'"
+                                ></span>
+                            </div>
+                            <div style="font-size: 14px; color: var(--brand-accent);">
+                                <span x-text="swimmerToSwap && swimmerToSwap.tag_id === tag.tag_id ? 'Current Tag' : 'Tap to Swap &rarr;'"></span>
+                            </div>
+                        </button>
+                    </template>
+
+                    <div
+                        x-show="availableSpareTags().length === 0"
+                        style="text-align: center; color: var(--text-secondary); padding: 24px 0;"
+                    >
+                        No spare tags available. Register or unassign tags first.
+                    </div>
+                </div>
+            </div>
+        </div>
+    </div>
+</div>
+
+<script>
+document.addEventListener('alpine:init', () => {
+    Alpine.data('deckStaging', (config) => ({
+        sessionId: config.sessionId,
+        csrfToken: config.csrfToken,
+        tags: config.tags || [],
+        swimmers: config.swimmers || [],
+        assignments: config.assignments || [],
+
+        activeTab: 'unassigned', // 'unassigned' | 'all' | 'assigned'
+        selectedTag: null,
+        selectedSwimmer: null,
+
+        swapModalOpen: false,
+        swimmerToSwap: null,
+        socket: null,
+
+        init() {
+            this.initWebSocket();
+        },
+
+        initWebSocket() {
+            const protocol = window.location.protocol === 'https:' ? 'wss:' : 'ws:';
+            const wsUrl = `${protocol}//${window.location.host}/ws/pool/${this.sessionId}/`;
+
+            try {
+                this.socket = new WebSocket(wsUrl);
+
+                this.socket.onmessage = (event) => {
+                    try {
+                        const payload = JSON.parse(event.data);
+                        this.handleLiveTelemetry(payload);
+                    } catch (err) {
+                        console.error('WebSocket JSON parsing error:', err);
+                    }
+                };
+
+                this.socket.onerror = (err) => {
+                    console.warn('Staging WebSocket error:', err);
+                };
+            } catch (e) {
+                console.warn('Unable to initialize staging WebSocket:', e);
+            }
+        },
+
+        handleLiveTelemetry(payload) {
+            const data = payload.data || payload;
+            const tagId = data.tag_id;
+            if (!tagId) return;
+
+            const targetTag = this.tags.find(t => t.tag_id === tagId);
+            if (targetTag) {
+                targetTag.is_online = true;
+                if (data.battery_percentage !== undefined) {
+                    targetTag.battery_percentage = data.battery_percentage;
+                }
+                if (data.rssi !== undefined) {
+                    targetTag.rssi = data.rssi;
+                }
+            }
+        },
+
+        getSignalLevel(rssi) {
+            if (rssi === undefined || rssi === null) return 0;
+            if (rssi >= -65) return 4;
+            if (rssi >= -75) return 3;
+            if (rssi >= -85) return 2;
+            if (rssi >= -95) return 1;
+            return 0;
+        },
+
+        getSignalClass(rssi) {
+            const level = this.getSignalLevel(rssi);
+            if (level >= 4) return 'strong';
+            if (level === 3) return 'good';
+            if (level === 2) return 'fair';
+            return 'weak';
+        },
+
+        unassignedTags() {
+            return this.tags.filter(t => !this.isTagAssigned(t.id));
+        },
+
+        filteredTags() {
+            if (this.activeTab === 'unassigned') {
+                return this.unassignedTags();
+            }
+            if (this.activeTab === 'assigned') {
+                return this.tags.filter(t => this.isTagAssigned(t.id));
+            }
+            return this.tags;
+        },
+
+        handleTagTap(tag) {
+            if (this.selectedTag && this.selectedTag.id === tag.id) {
+                this.selectedTag = null;
+            } else {
+                this.selectedTag = tag;
+            }
+        },
+
+        handleSwimmerTap(swimmer) {
+            if (this.selectedSwimmer && this.selectedSwimmer.id === swimmer.id) {
+                this.selectedSwimmer = null;
+            } else {
+                this.selectedSwimmer = swimmer;
+            }
+        },
+
+        isReadyToAssign() {
+            return this.selectedTag !== null && this.selectedSwimmer !== null;
+        },
+
+        guideInstructionText() {
+            if (!this.selectedTag && !this.selectedSwimmer) {
+                return '1. Tap an available Hardware Tag to begin';
+            }
+            if (this.selectedTag && !this.selectedSwimmer) {
+                return '2. Tap a Swimmer from the team roster';
+            }
+            if (!this.selectedTag && this.selectedSwimmer) {
+                return 'Tap an available Hardware Tag to pair with ' + this.selectedSwimmer.name;
+            }
+            return '3. Tap Lane (1 to 8) to complete pairing!';
+        },
+
+        resetSelection() {
+            this.selectedTag = null;
+            this.selectedSwimmer = null;
+        },
+
+        getLaneSwimmers(laneNumber) {
+            return this.assignments.filter(a => a.lane_number === laneNumber);
+        },
+
+        isTagAssigned(tagId) {
+            return this.assignments.some(a => {
+                const tagObj = this.tags.find(t => t.id === tagId);
+                return tagObj && a.tag_id === tagObj.tag_id;
+            });
+        },
+
+        getAssignedSwimmerNameForTag(tagIdStr) {
+            const assignment = this.assignments.find(a => a.tag_id === tagIdStr);
+            return assignment ? assignment.swimmer_name : '';
+        },
+
+        openSwapModal(swimmerId) {
+            const sw = this.swimmers.find(s => s.id === swimmerId);
+            if (sw) {
+                this.swimmerToSwap = sw;
+                this.swapModalOpen = true;
+            }
+        },
+
+        closeSwapModal() {
+            this.swapModalOpen = false;
+            this.swimmerToSwap = null;
+        },
+
+        availableSpareTags() {
+            return [...this.tags].sort((a, b) => {
+                const aAssigned = this.isTagAssigned(a.id);
+                const bAssigned = this.isTagAssigned(b.id);
+                if (aAssigned === bAssigned) return 0;
+                return aAssigned ? 1 : -1;
+            });
+        },
+
+        async executeSwap(newTagId) {
+            if (!this.swimmerToSwap || !newTagId) return;
+
+            try {
+                const res = await fetch(`/api/tracker/session/${this.sessionId}/swap-tag/`, {
+                    method: 'POST',
+                    headers: {
+                        'Content-Type': 'application/json',
+                        'X-CSRFToken': this.csrfToken
+                    },
+                    body: JSON.stringify({
+                        swimmer_id: this.swimmerToSwap.id,
+                        new_tag_id: newTagId
+                    })
+                });
+
+                if (!res.ok) {
+                    const err = await res.json();
+                    alert('Swap error: ' + (err.error || 'Server error'));
+                    return;
+                }
+
+                const data = await res.json();
+                const assign = data.assignment;
+
+                this.assignments = this.assignments.filter(a => a.swimmer_id !== assign.swimmer_id);
+                this.assignments = this.assignments.filter(a => a.tag_id !== assign.tag_id);
+                this.assignments.push(assign);
+
+                const sw = this.swimmers.find(s => s.id === assign.swimmer_id);
+                if (sw) {
+                    sw.tag_id = assign.tag_id;
+                    sw.lane_number = assign.lane_number;
+                }
+
+                this.tags.forEach(t => {
+                    if (t.tag_id === assign.tag_id) {
+                        t.assigned_swimmer_id = assign.swimmer_id;
+                    } else if (t.assigned_swimmer_id === assign.swimmer_id) {
+                        t.assigned_swimmer_id = null;
+                    }
+                });
+
+                this.closeSwapModal();
+            } catch (e) {
+                console.error('Error executing tag swap:', e);
+                alert('Network connection error while swapping tag.');
+            }
+        },
+
+        async handleLaneTap(laneNumber) {
+            if (!this.isReadyToAssign()) return;
+
+            const payload = {
+                tag_id: this.selectedTag.tag_id,
+                swimmer_id: this.selectedSwimmer.id,
+                lane_number: laneNumber
+            };
+
+            try {
+                const res = await fetch(`/api/tracker/session/${this.sessionId}/pair/`, {
+                    method: 'POST',
+                    headers: {
+                        'Content-Type': 'application/json',
+                        'X-CSRFToken': this.csrfToken
+                    },
+                    body: JSON.stringify(payload)
+                });
+
+                if (!res.ok) {
+                    const err = await res.json();
+                    alert('Pairing error: ' + (err.error || 'Server error'));
+                    return;
+                }
+
+                const data = await res.json();
+                const newAssign = data.assignment;
+
+                this.assignments = this.assignments.filter(a => a.swimmer_id !== newAssign.swimmer_id);
+                this.assignments = this.assignments.filter(a => a.tag_id !== newAssign.tag_id);
+                this.assignments.push(newAssign);
+
+                const sw = this.swimmers.find(s => s.id === newAssign.swimmer_id);
+                if (sw) {
+                    sw.tag_id = newAssign.tag_id;
+                    sw.lane_number = newAssign.lane_number;
+                }
+
+                this.tags.forEach(t => {
+                    if (t.tag_id === newAssign.tag_id) {
+                        t.assigned_swimmer_id = newAssign.swimmer_id;
+                    } else if (t.assigned_swimmer_id === newAssign.swimmer_id) {
+                        t.assigned_swimmer_id = null;
+                    }
+                });
+
+                this.resetSelection();
+            } catch (e) {
+                console.error('Network error during pairing:', e);
+                alert('Network connection error.');
+            }
+        },
+
+        async unassignSwimmer(swimmerId) {
+            try {
+                const res = await fetch(`/api/tracker/session/${this.sessionId}/unassign/`, {
+                    method: 'POST',
+                    headers: {
+                        'Content-Type': 'application/json',
+                        'X-CSRFToken': this.csrfToken
+                    },
+                    body: JSON.stringify({ swimmer_id: swimmerId })
+                });
+
+                if (res.ok) {
+                    this.assignments = this.assignments.filter(a => a.swimmer_id !== swimmerId);
+
+                    const sw = this.swimmers.find(s => s.id === swimmerId);
+                    if (sw) {
+                        sw.tag_id = null;
+                        sw.lane_number = null;
+                    }
+
+                    this.tags.forEach(t => {
+                        if (t.assigned_swimmer_id === swimmerId) {
+                            t.assigned_swimmer_id = null;
+                        }
+                    });
+                }
+            } catch (e) {
+                console.error('Error unassigning swimmer:', e);
+            }
+        }
+    }));
+});
+</script>
+{% endblock %}

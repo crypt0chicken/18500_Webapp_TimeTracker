@@ -79,6 +79,10 @@ class HardwareTag(models.Model):
         default=100,
         validators=[MinValueValidator(0), MaxValueValidator(100)],
     )
+    rssi = models.IntegerField(
+        default=-65,
+        help_text="Signal strength indicator in dBm (e.g., -60 to -90 dBm).",
+    )
     firmware_version = models.CharField(max_length=32, default="1.0.0")
     active_swimmer = models.OneToOneField(
         SwimmerProfile,
@@ -92,7 +96,7 @@ class HardwareTag(models.Model):
 
     def __str__(self):
         assigned = self.active_swimmer.user.username if self.active_swimmer else "Unassigned"
-        return f"Tag {self.tag_id} [{self.battery_percentage}%] -> {assigned}"
+        return f"Tag {self.tag_id} [{self.battery_percentage}% | {self.rssi}dBm] -> {assigned}"
 
 
 class PracticeSession(models.Model):
@@ -243,3 +247,38 @@ class SystemConfiguration(models.Model):
 
     def __str__(self):
         return "Global System Configuration"
+
+
+class LaneAssignment(models.Model):
+    session = models.ForeignKey(
+        PracticeSession,
+        on_delete=models.CASCADE,
+        related_name='lane_assignments',
+    )
+    swimmer = models.ForeignKey(
+        SwimmerProfile,
+        on_delete=models.CASCADE,
+        related_name='lane_assignments',
+    )
+    tag = models.ForeignKey(
+        HardwareTag,
+        on_delete=models.SET_NULL,
+        null=True,
+        blank=True,
+        related_name='lane_assignments',
+    )
+    lane_number = models.PositiveSmallIntegerField(
+        validators=[MinValueValidator(1), MaxValueValidator(8)],
+        help_text="Assigned pool lane number (1 to 8)",
+    )
+    staged_at = models.DateTimeField(auto_now=True)
+
+    class Meta:
+        unique_together = ('session', 'swimmer')
+        ordering = ['lane_number', 'staged_at']
+
+    def __str__(self):
+        tag_str = self.tag.tag_id if self.tag else "No Tag"
+        return f"Lane {self.lane_number}: {self.swimmer.user.username} ({tag_str})"
+
+

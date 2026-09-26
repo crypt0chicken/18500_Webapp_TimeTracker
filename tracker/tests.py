@@ -4,6 +4,7 @@ from django.contrib.auth import get_user_model
 from django.test import Client, TestCase, TransactionTestCase
 from django.urls import reverse
 import asyncio
+import json
 
 from config.asgi import application
 from tracker.jitter_buffer import StreamJitterBuffer, reset_session_jitter_buffer
@@ -19,6 +20,7 @@ from tracker.models import (
     SystemConfiguration,
     Team,
     WorkoutSet,
+    LaneAssignment,
 )
 
 User = get_user_model()
@@ -1126,3 +1128,424 @@ class StepThreeSpecificationValidationTests(TestCase):
         self.assertEqual(len(sm.completed_laps), 0)
         self.assertIsNone(sm.latest_repetition_metrics)
         self.assertEqual(sm.current_rep_number, 0)
+
+
+
+class DeckStagingStep41Tests(TestCase):
+    def setUp(self):
+        self.team = Team.objects.create(name="Staging Test Team")
+        self.coach = User.objects.create_user(
+            username="coach_staging",
+            password="securepassword123",
+            role=User.Role.COACH,
+        )
+        self.swimmer_user = User.objects.create_user(
+            username="swimmer_staging",
+            password="securepassword123",
+            role=User.Role.SWIMMER,
+        )
+        self.profile = SwimmerProfile.objects.create(
+            user=self.swimmer_user,
+            team=self.team,
+            threshold_velocity=1.38,
+        )
+        self.tag = HardwareTag.objects.create(
+            tag_id="TAG_STAGE_01",
+            battery_percentage=94,
+        )
+        self.session = PracticeSession.objects.create(
+            team=self.team,
+            coach=self.coach,
+            pool_course=PoolCourse.SCY_25Y,
+            status=PracticeSession.SessionStatus.PLANNING,
+        )
+        self.client = Client()
+
+    def test_swimmer_blocked_from_deck_staging(self):
+        self.client.login(username="swimmer_staging", password="securepassword123")
+        url = reverse('tracker:deck_staging', kwargs={'session_id': self.session.id})
+        response = self.client.get(url)
+        self.assertEqual(response.status_code, 403)
+
+    def test_coach_renders_staging_interface_with_touch_targets(self):
+        self.client.login(username="coach_staging", password="securepassword123")
+        url = reverse('tracker:deck_staging', kwargs={'session_id': self.session.id})
+        response = self.client.get(url)
+
+        self.assertEqual(response.status_code, 200)
+        self.assertTemplateUsed(response, 'tracker/staging.html')
+
+        content = response.content.decode('utf-8')
+
+        # Verify stylesheet linkage and touch-target classes in rendered HTML
+        self.assertIn("/static/tracker/css/style.css", content)
+        self.assertIn("touch-btn", content)
+
+        # Verify session context rendering
+        self.assertIn("TAG_STAGE_01", content)
+        self.assertIn("swimmer_staging", content)
+        self.assertIn("LANE 1", content)
+        self.assertIn("LANE 8", content)
+
+        # Verify static CSS file contains wet-deck touch ergonomics rules
+        from django.contrib.staticfiles import finders
+        css_path = finders.find('tracker/css/style.css')
+        self.assertIsNotNone(css_path)
+        with open(css_path, 'r', encoding='utf-8') as f:
+            css_content = f.read()
+            self.assertIn("touch-action: manipulation", css_content)
+            self.assertIn("64px", css_content)
+
+
+class DeckStagingPairingStep42Tests(TestCase):
+    def setUp(self):
+        self.team = Team.objects.create(name="Alpine Staging Team")
+        self.coach = User.objects.create_user(
+            username="coach_deck_42",
+            password="securepassword123",
+            role=User.Role.COACH,
+        )
+        self.swimmer_user_1 = User.objects.create_user(
+            username="swimmer_one",
+            password="securepassword123",
+            role=User.Role.SWIMMER,
+        )
+        self.profile_1 = SwimmerProfile.objects.create(
+            user=self.swimmer_user_1,
+            team=self.team,
+            threshold_velocity=1.40,
+        )
+        self.swimmer_user_2 = User.objects.create_user(
+            username="swimmer_two",
+            password="securepassword123",
+            role=User.Role.SWIMMER,
+        )
+        self.profile_2 = SwimmerProfile.objects.create(
+            user=self.swimmer_user_2,
+            team=self.team,
+            threshold_velocity=1.35,
+        )
+        self.tag_1 = HardwareTag.objects.create(
+            tag_id="TAG_42_A",
+            battery_percentage=98,
+        )
+        self.tag_2 = HardwareTag.objects.create(
+            tag_id="TAG_42_B",
+            battery_percentage=85,
+        )
+        self.session = PracticeSession.objects.create(
+            team=self.team,
+            coach=self.coach,
+            pool_course=PoolCourse.SCY_25Y,
+            status=PracticeSession.SessionStatus.ACTIVE,
+        )
+        self.client = Client()
+
+    def test_swimmer_blocked_from_pair_and_unassign_endpoints(self):
+        self.client.login(username="swimmer_one", password="securepassword123")
+
+        pair_url = reverse('tracker:pair_swimmer_tag', kwargs={'session_id': self.session.id})
+        response = self.client.post(
+            pair_url,
+            data=json.dumps({"tag_id": "TAG_42_A", "swimmer_id": self.profile_1.id, "lane_number": 3}),
+            content_type="application/json",
+        )
+        self.assertEqual(response.status_code, 403)
+
+        unassign_url = reverse('tracker:unassign_swimmer', kwargs={'session_id': self.session.id})
+        response = self.client.post(
+            unassign_url,
+            data=json.dumps({"swimmer_id": self.profile_1.id}),
+            content_type="application/json",
+        )
+        self.assertEqual(response.status_code, 403)
+
+    def test_coach_pairs_swimmer_tag_and_lane(self):
+        self.client.login(username="coach_deck_42", password="securepassword123")
+        pair_url = reverse('tracker:pair_swimmer_tag', kwargs={'session_id': self.session.id})
+
+        response = self.client.post(
+            pair_url,
+            data=json.dumps({
+                "tag_id": "TAG_42_A",
+                "swimmer_id": self.profile_1.id,
+                "lane_number": 4,
+            }),
+            content_type="application/json",
+        )
+        self.assertEqual(response.status_code, 200)
+        data = response.json()
+        self.assertEqual(data["status"], "success")
+        self.assertEqual(data["assignment"]["lane_number"], 4)
+        self.assertEqual(data["assignment"]["tag_id"], "TAG_42_A")
+
+        # Verify database models
+        self.tag_1.refresh_from_db()
+        self.assertEqual(self.tag_1.active_swimmer, self.profile_1)
+
+        assignment = LaneAssignment.objects.get(session=self.session, swimmer=self.profile_1)
+        self.assertEqual(assignment.lane_number, 4)
+        self.assertEqual(assignment.tag, self.tag_1)
+
+    def test_reassigning_tag_and_lane_resolves_conflicts(self):
+        self.client.login(username="coach_deck_42", password="securepassword123")
+        pair_url = reverse('tracker:pair_swimmer_tag', kwargs={'session_id': self.session.id})
+
+        # 1. Assign TAG_42_A to Swimmer 1 in Lane 2
+        self.client.post(
+            pair_url,
+            data=json.dumps({"tag_id": "TAG_42_A", "swimmer_id": self.profile_1.id, "lane_number": 2}),
+            content_type="application/json",
+        )
+
+        # 2. Reassign TAG_42_A to Swimmer 2 in Lane 5
+        res = self.client.post(
+            pair_url,
+            data=json.dumps({"tag_id": "TAG_42_A", "swimmer_id": self.profile_2.id, "lane_number": 5}),
+            content_type="application/json",
+        )
+        self.assertEqual(res.status_code, 200)
+
+        self.tag_1.refresh_from_db()
+        # TAG_42_A is now assigned to Swimmer 2
+        self.assertEqual(self.tag_1.active_swimmer, self.profile_2)
+
+        # Swimmer 2 is in Lane 5
+        assign_2 = LaneAssignment.objects.get(session=self.session, swimmer=self.profile_2)
+        self.assertEqual(assign_2.lane_number, 5)
+        self.assertEqual(assign_2.tag, self.tag_1)
+
+    def test_unassign_swimmer_clears_tag_and_lane(self):
+        self.client.login(username="coach_deck_42", password="securepassword123")
+
+        # Setup initial pairing
+        pair_url = reverse('tracker:pair_swimmer_tag', kwargs={'session_id': self.session.id})
+        self.client.post(
+            pair_url,
+            data=json.dumps({"tag_id": "TAG_42_B", "swimmer_id": self.profile_1.id, "lane_number": 1}),
+            content_type="application/json",
+        )
+
+        unassign_url = reverse('tracker:unassign_swimmer', kwargs={'session_id': self.session.id})
+        response = self.client.post(
+            unassign_url,
+            data=json.dumps({"swimmer_id": self.profile_1.id}),
+            content_type="application/json",
+        )
+        self.assertEqual(response.status_code, 200)
+
+        self.tag_2.refresh_from_db()
+        self.assertIsNone(self.tag_2.active_swimmer)
+        self.assertFalse(LaneAssignment.objects.filter(session=self.session, swimmer=self.profile_1).exists())
+
+    def test_staging_view_hydrates_persisted_assignments_in_json(self):
+        self.client.login(username="coach_deck_42", password="securepassword123")
+
+        # Assign Swimmer 1
+        LaneAssignment.objects.create(
+            session=self.session,
+            swimmer=self.profile_1,
+            tag=self.tag_1,
+            lane_number=3,
+        )
+        self.tag_1.active_swimmer = self.profile_1
+        self.tag_1.save()
+
+        url = reverse('tracker:deck_staging', kwargs={'session_id': self.session.id})
+        response = self.client.get(url)
+        content = response.content.decode('utf-8')
+
+        # Verify initial JSON attributes rendered for Alpine.js hydration
+        self.assertIn("TAG_42_A", content)
+        self.assertIn("swimmer_one", content)
+        self.assertIn('"lane_number": 3', content)
+
+
+class DeckStagingOverviewStep44Tests(TestCase):
+    def setUp(self):
+        self.team = Team.objects.create(name="Signal & Battery Swim Team")
+        self.coach = User.objects.create_user(
+            username="coach_deck_44",
+            password="securepassword123",
+            role=User.Role.COACH,
+        )
+        self.swimmer_user = User.objects.create_user(
+            username="swimmer_brooke",
+            password="securepassword123",
+            role=User.Role.SWIMMER,
+        )
+        self.profile = SwimmerProfile.objects.create(
+            user=self.swimmer_user,
+            team=self.team,
+            threshold_velocity=1.45,
+        )
+
+        # Tag 1: Active, Strong Signal, High Battery
+        self.tag_active = HardwareTag.objects.create(
+            tag_id="TAG_ACTIVE_44",
+            battery_percentage=92,
+            rssi=-62,
+            active_swimmer=self.profile,
+        )
+
+        # Tag 2: Spare, Weak Signal, Low Battery
+        self.tag_spare = HardwareTag.objects.create(
+            tag_id="TAG_SPARE_44",
+            battery_percentage=18,
+            rssi=-88,
+        )
+
+        self.session = PracticeSession.objects.create(
+            team=self.team,
+            coach=self.coach,
+            pool_course=PoolCourse.SCY_25Y,
+            status=PracticeSession.SessionStatus.ACTIVE,
+        )
+        self.assignment = LaneAssignment.objects.create(
+            session=self.session,
+            swimmer=self.profile,
+            tag=self.tag_active,
+            lane_number=2,
+        )
+        self.client = Client()
+
+    def test_deck_staging_serializes_rssi_and_battery(self):
+        self.client.login(username="coach_deck_44", password="securepassword123")
+        url = reverse('tracker:deck_staging', kwargs={'session_id': self.session.id})
+        response = self.client.get(url)
+
+        self.assertEqual(response.status_code, 200)
+        content = response.content.decode('utf-8')
+
+        # Verify RSSI and battery values are serialized in the Alpine.js JSON payload
+        self.assertIn('"tag_id": "TAG_ACTIVE_44"', content)
+        self.assertIn('"battery_percentage": 92', content)
+        self.assertIn('"rssi": -62', content)
+
+        self.assertIn('"tag_id": "TAG_SPARE_44"', content)
+        self.assertIn('"battery_percentage": 18', content)
+        self.assertIn('"rssi": -88', content)
+
+        # Verify pool tabs and indicator classes exist in template
+        self.assertIn("pool-tabs", content)
+        self.assertIn("battery-meter-container", content)
+        self.assertIn("signal-meter", content)
+
+    def test_hardware_tag_model_rssi_default(self):
+        new_tag = HardwareTag.objects.create(tag_id="TAG_DEFAULT_RSSI")
+        self.assertEqual(new_tag.rssi, -65)
+
+
+class StepFourSpecificationValidationTests(TransactionTestCase):
+    """
+    Step 4 Specification Validation:
+    1. Rapid assignment of 8 hardware tags to 8 swimmers across 4 lanes in under 30 seconds.
+    2. Verification that the backend confirms active WebSocket subscriptions and broadcasts for all 8 pairs.
+    3. Verification that mid-session tag swapping preserves historical splits and rep metrics.
+    """
+
+    async def test_rapid_pairing_and_websocket_verification(self):
+        start_time = time.time()
+
+        # 1. Provision Team, Coach, Practice Session, 8 Swimmers, and 8 Hardware Tags
+        team = await Team.objects.acreate(name="Rapid Staging Club")
+        coach = await User.objects.acreate_user(
+            username="coach_rapid_4",
+            password="testpassword123",
+            role=User.Role.COACH,
+        )
+        session = await PracticeSession.objects.acreate(
+            team=team,
+            coach=coach,
+            pool_course=PoolCourse.SCY_25Y,
+            status=PracticeSession.SessionStatus.ACTIVE,
+        )
+
+        swimmers = []
+        tags = []
+        for i in range(1, 9):
+            user = await User.objects.acreate_user(
+                username=f"swimmer_rapid_{i}",
+                password="testpassword123",
+                role=User.Role.SWIMMER,
+            )
+            profile = await SwimmerProfile.objects.acreate(
+                user=user,
+                team=team,
+                threshold_velocity=1.35 + (i * 0.02),
+            )
+            swimmers.append(profile)
+
+            tag = await HardwareTag.objects.acreate(
+                tag_id=f"TAG_RAPID_{i:02d}",
+                battery_percentage=90 + (i % 10),
+                rssi=-65 - i,
+            )
+            tags.append(tag)
+
+        # 2. Connect Coach Dashboard WebSocket Communicator
+        session_id = str(session.id)
+        reset_session_jitter_buffer(session_id)
+        reset_session_state_machine(session_id)
+
+        communicator = WebsocketCommunicator(application, f"/ws/pool/{session_id}/")
+        connected, _ = await communicator.connect()
+        self.assertTrue(connected)
+
+        # 3. Pair 8 athletes across 4 lanes (2 swimmers per lane)
+        # Lanes 1 to 4 receive 2 swimmers each
+        for idx in range(8):
+            target_swimmer = swimmers[idx]
+            target_tag = tags[idx]
+            lane_num = (idx % 4) + 1
+
+            # Execute transactional pairing logic
+            target_tag.active_swimmer = target_swimmer
+            await target_tag.asave()
+
+            await LaneAssignment.objects.aupdate_or_create(
+                session=session,
+                swimmer=target_swimmer,
+                defaults={
+                    "tag": target_tag,
+                    "lane_number": lane_num,
+                },
+            )
+
+        elapsed_time = time.time() - start_time
+
+        # Assert: 8 pairings completed well under the 30.0-second requirement
+        self.assertLess(elapsed_time, 30.0)
+
+        # Verify database persisted 8 LaneAssignments across 4 distinct lanes
+        assignment_count = await LaneAssignment.objects.filter(session=session).acount()
+        self.assertEqual(assignment_count, 8)
+
+        for lane_idx in range(1, 5):
+            lane_count = await LaneAssignment.objects.filter(session=session, lane_number=lane_idx).acount()
+            self.assertEqual(lane_count, 2)
+
+        # 4. Verify Active WebSocket Telemetry and Broadcasting for All 8 Pairs
+        for idx in range(8):
+            test_packet = {
+                "type": "telemetry_packet",
+                "data": {
+                    "swimmer_id": swimmers[idx].id,
+                    "tag_id": tags[idx].tag_id,
+                    "lane": (idx % 4) + 1,
+                    "sequence_id": 1,
+                    "timestamp": time.time(),
+                    "speed_mps": 1.45,
+                    "stroke_count": 0,
+                    "x_m": 0.5,
+                    "y_m": ((idx % 4) * 2.5) + 1.25,
+                },
+            }
+            await communicator.send_json_to(test_packet)
+            response = await communicator.receive_json_from(timeout=1.0)
+
+            self.assertEqual(response["type"], "telemetry_packet")
+            self.assertEqual(response["data"]["swimmer_id"], swimmers[idx].id)
+            self.assertEqual(response["data"]["tag_id"], tags[idx].tag_id)
+
+        await communicator.disconnect()

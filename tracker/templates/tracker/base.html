@@ -1,0 +1,32 @@
+{% load static %}
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
+    <title>{% block title %}TimeTracker Deck{% endblock %}</title>
+
+    <!-- Global Wet-Deck Stylesheet -->
+    <link rel="stylesheet" href="{% static 'tracker/css/style.css' %}">
+
+    <!-- Alpine.js -->
+    <script defer src="https://cdn.jsdelivr.net/npm/alpinejs@3.14.8/dist/cdn.min.js"></script>
+
+    {% block extra_head %}{% endblock %}
+</head>
+<body>
+    <header class="deck-header">
+        <div>
+            <h1 style="font-size: 22px; font-weight: 800; letter-spacing: -0.5px;">TimeTracker Deck</h1>
+            <p style="font-size: 14px; color: var(--text-secondary);">{% block session_subtitle %}Pool Deck Operations{% endblock %}</p>
+        </div>
+        <div>
+            {% block header_actions %}{% endblock %}
+        </div>
+    </header>
+
+    <main class="container">
+        {% block content %}{% endblock %}
+    </main>
+</body>
+</html>
