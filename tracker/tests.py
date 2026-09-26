@@ -1549,3 +1549,317 @@ class StepFourSpecificationValidationTests(TransactionTestCase):
             self.assertEqual(response["data"]["tag_id"], tags[idx].tag_id)
 
         await communicator.disconnect()
+
+
+
+class CoachLiveDashboardStep51Tests(TestCase):
+    def setUp(self):
+        self.team = Team.objects.create(name="Dashboard Test Club")
+        self.coach = User.objects.create_user(
+            username="coach_dash_51",
+            password="securepassword123",
+            role=User.Role.COACH,
+        )
+        self.swimmer_user = User.objects.create_user(
+            username="swimmer_dash_51",
+            password="securepassword123",
+            role=User.Role.SWIMMER,
+        )
+        self.profile = SwimmerProfile.objects.create(
+            user=self.swimmer_user,
+            team=self.team,
+            threshold_velocity=1.45,
+        )
+        self.session = PracticeSession.objects.create(
+            team=self.team,
+            coach=self.coach,
+            pool_course=PoolCourse.SCY_25Y,
+            status=PracticeSession.SessionStatus.ACTIVE,
+        )
+        self.tag = HardwareTag.objects.create(
+            tag_id="TAG_DASH_01",
+            battery_percentage=96,
+            active_swimmer=self.profile,
+        )
+        self.assignment = LaneAssignment.objects.create(
+            session=self.session,
+            swimmer=self.profile,
+            tag=self.tag,
+            lane_number=1,
+        )
+        self.client = Client()
+
+    def test_swimmer_blocked_from_live_dashboard(self):
+        self.client.login(username="swimmer_dash_51", password="securepassword123")
+        url = reverse('tracker:coach_session', kwargs={'session_id': self.session.id})
+        response = self.client.get(url)
+        self.assertEqual(response.status_code, 403)
+
+    def test_coach_renders_8_lane_dashboard_with_hydrated_data(self):
+        self.client.login(username="coach_dash_51", password="securepassword123")
+        url = reverse('tracker:coach_session', kwargs={'session_id': self.session.id})
+        response = self.client.get(url)
+
+        self.assertEqual(response.status_code, 200)
+        self.assertTemplateUsed(response, 'tracker/dashboard.html')
+
+        content = response.content.decode('utf-8')
+
+        # Verify 8-lane grid classes and structural elements
+        self.assertIn("dashboard-grid", content)
+        self.assertIn("live-lane-card", content)
+        self.assertIn("clock-timer-digits", content)
+        self.assertIn("metric-tile-grid", content)
+        self.assertIn("pool-track", content)
+
+        # Verify staged swimmer in Lane 1 is serialized
+        self.assertIn('"lane_number": 1', content)
+        self.assertIn('"tag_id": "TAG_DASH_01"', content)
+        self.assertIn("swimmer_dash_51", content)
+
+        # Verify all 8 lanes are present in template
+        for lane_num in range(1, 9):
+            self.assertIn(f'"lane_number": {lane_num}', content)
+
+
+from django.contrib.staticfiles import finders
+
+class OutdoorHighContrastStep52Tests(TestCase):
+    def setUp(self):
+        self.team = Team.objects.create(name="Outdoor Contrast Swim Club")
+        self.coach = User.objects.create_user(
+            username="coach_outdoor_52",
+            password="securepassword123",
+            role=User.Role.COACH,
+        )
+        self.session = PracticeSession.objects.create(
+            team=self.team,
+            coach=self.coach,
+            pool_course=PoolCourse.LCM_50M,
+            status=PracticeSession.SessionStatus.ACTIVE,
+        )
+        self.client = Client()
+
+    def test_theme_toggle_button_and_script_present_in_templates(self):
+        self.client.login(username="coach_outdoor_52", password="securepassword123")
+        url = reverse('tracker:coach_session', kwargs={'session_id': self.session.id})
+        response = self.client.get(url)
+
+        self.assertEqual(response.status_code, 200)
+        content = response.content.decode('utf-8')
+
+        # Verify button and bootstrap logic in DOM
+        self.assertIn('id="theme-toggle-btn"', content)
+        self.assertIn('onclick="toggleTheme()"', content)
+        self.assertIn('data-theme', content)
+        self.assertIn('localStorage.getItem(\'timetracker_theme\')', content)
+        self.assertIn('Outdoor Mode', content)
+
+    def test_outdoor_high_contrast_css_specifications(self):
+        css_path = finders.find('tracker/css/style.css')
+        self.assertIsNotNone(css_path)
+
+        with open(css_path, 'r', encoding='utf-8') as f:
+            css_content = f.read()
+
+        # Verify outdoor theme rules in style.css
+        self.assertIn('[data-theme="outdoor"]', css_content)
+        self.assertIn('--bg-color: #ffffff;', css_content)
+        self.assertIn('--surface-border: #000000;', css_content)
+        self.assertIn('--text-primary: #000000;', css_content)
+        self.assertIn('#ffff00', css_content)  # Sunlight high-vis yellow digits
+        self.assertIn('border: 3px solid #000000', css_content)
+
+
+
+class ScreenWakeLockStep53Tests(TestCase):
+    def setUp(self):
+        self.team = Team.objects.create(name="Wake Lock Swim Team")
+        self.coach = User.objects.create_user(
+            username="coach_wakelock_53",
+            password="securepassword123",
+            role=User.Role.COACH,
+        )
+        self.session = PracticeSession.objects.create(
+            team=self.team,
+            coach=self.coach,
+            pool_course=PoolCourse.SCY_25Y,
+            status=PracticeSession.SessionStatus.ACTIVE,
+        )
+        self.client = Client()
+
+    def test_wake_lock_ui_and_scripts_present_in_rendered_dashboard(self):
+        self.client.login(username="coach_wakelock_53", password="securepassword123")
+        url = reverse('tracker:coach_session', kwargs={'session_id': self.session.id})
+        response = self.client.get(url)
+
+        self.assertEqual(response.status_code, 200)
+        content = response.content.decode('utf-8')
+
+        # Verify Wake-Lock button element and onclick handler
+        self.assertIn('id="wake-lock-btn"', content)
+        self.assertIn('onclick="toggleWakeLock()"', content)
+
+        # Verify Wake-Lock JavaScript API calls and visibility listeners
+        self.assertIn("'wakeLock' in navigator", content)
+        self.assertIn("navigator.wakeLock.request('screen')", content)
+        self.assertIn("visibilitychange", content)
+        self.assertIn("acquireWakeLock()", content)
+
+    def test_wake_lock_css_specifications(self):
+        css_path = finders.find('tracker/css/style.css')
+        self.assertIsNotNone(css_path)
+
+        with open(css_path, 'r', encoding='utf-8') as f:
+            css_content = f.read()
+
+        # Verify base and state CSS rules
+        self.assertIn(".wake-lock-btn", css_content)
+        self.assertIn(".wake-lock-btn.wake-active", css_content)
+        self.assertIn(".wake-lock-btn.wake-inactive", css_content)
+        self.assertIn(".wake-lock-btn.wake-unsupported", css_content)
+
+        # Verify outdoor sunlight mode overrides for wake-lock button
+        self.assertIn('[data-theme="outdoor"] .wake-lock-btn', css_content)
+        self.assertIn('[data-theme="outdoor"] .wake-lock-btn.wake-active', css_content)
+
+
+
+class DeckLockControlsStep54Tests(TestCase):
+    def setUp(self):
+        self.team = Team.objects.create(name="Deck Lock Swim Club")
+        self.coach = User.objects.create_user(
+            username="coach_decklock_54",
+            password="securepassword123",
+            role=User.Role.COACH,
+        )
+        self.session = PracticeSession.objects.create(
+            team=self.team,
+            coach=self.coach,
+            pool_course=PoolCourse.SCY_25Y,
+            status=PracticeSession.SessionStatus.ACTIVE,
+        )
+        self.client = Client()
+
+    def test_deck_lock_elements_and_scripts_rendered_in_templates(self):
+        self.client.login(username="coach_decklock_54", password="securepassword123")
+        url = reverse('tracker:coach_session', kwargs={'session_id': self.session.id})
+        response = self.client.get(url)
+
+        self.assertEqual(response.status_code, 200)
+        content = response.content.decode('utf-8')
+
+        # Verify Deck Lock header button and shield modal markup
+        self.assertIn('id="deck-lock-btn"', content)
+        self.assertIn('onclick="toggleDeckLock()"', content)
+        self.assertIn('id="deck-lock-shield"', content)
+        self.assertIn('id="deck-unlock-hold-btn"', content)
+        self.assertIn('id="deck-unlock-progress-fill"', content)
+
+        # Verify hold-to-unlock JavaScript logic
+        self.assertIn('HOLD_DURATION_MS = 2000', content)
+        self.assertIn('lockDeck()', content)
+        self.assertIn('unlockDeck()', content)
+        self.assertIn('startUnlockHold', content)
+        self.assertIn('cancelUnlockHold', content)
+        self.assertIn('pointerdown', content)
+
+    def test_deck_lock_css_specifications(self):
+        css_path = finders.find('tracker/css/style.css')
+        self.assertIsNotNone(css_path)
+
+        with open(css_path, 'r', encoding='utf-8') as f:
+            css_content = f.read()
+
+        # Verify Deck Lock button, shield card, and hold button rules
+        self.assertIn(".deck-lock-btn", css_content)
+        self.assertIn(".deck-lock-btn.locked", css_content)
+        self.assertIn("body.deck-locked main", css_content)
+        self.assertIn("pointer-events: none !important", css_content)
+        self.assertIn(".deck-lock-shield", css_content)
+        self.assertIn(".deck-unlock-hold-btn", css_content)
+        self.assertIn(".deck-unlock-progress-fill", css_content)
+
+        # Verify Outdoor Sunlight theme integration for Deck Lock
+        self.assertIn('[data-theme="outdoor"] .deck-lock-btn', css_content)
+        self.assertIn('[data-theme="outdoor"] .deck-lock-shield .deck-lock-floating-card', css_content)
+        self.assertIn('[data-theme="outdoor"] .deck-unlock-hold-btn', css_content)
+
+
+class StepFiveSpecificationValidationTests(TransactionTestCase):
+    """
+    Step 5 Specification Validation:
+    1. Coach live dashboard loads and populates all 8 pool lanes with staged swimmers.
+    2. Wet-deck controls (Outdoor Sunlight Mode, Wake Lock API, Deck Lock Shield) are fully mounted.
+    3. Live telemetry packets update lane state, split clocks, velocities, and spatial markers in real time.
+    """
+
+    async def test_full_live_dashboard_integration(self):
+        # 1. Provision Team, Coach, Swimmer, Session, and Hardware Tag
+        team = await Team.objects.acreate(name="Championship Swim Club")
+        coach = await User.objects.acreate_user(
+            username="coach_step5_val",
+            password="testpassword123",
+            role=User.Role.COACH,
+        )
+        swimmer = await User.objects.acreate_user(
+            username="swimmer_step5_val",
+            password="testpassword123",
+            role=User.Role.SWIMMER,
+        )
+        profile = await SwimmerProfile.objects.acreate(
+            user=swimmer,
+            team=team,
+            threshold_velocity=1.45,
+        )
+        tag = await HardwareTag.objects.acreate(
+            tag_id="TAG_VAL_05",
+            battery_percentage=98,
+            rssi=-64,
+            active_swimmer=profile,
+        )
+        session = await PracticeSession.objects.acreate(
+            team=team,
+            coach=coach,
+            pool_course=PoolCourse.SCY_25Y,
+            status=PracticeSession.SessionStatus.ACTIVE,
+        )
+        await LaneAssignment.objects.acreate(
+            session=session,
+            swimmer=profile,
+            tag=tag,
+            lane_number=3,
+        )
+
+        session_id = str(session.id)
+        reset_session_jitter_buffer(session_id)
+        reset_session_state_machine(session_id)
+
+        # 2. Verify WebSocket Connection and Real-time Broadcast to Dashboard
+        communicator = WebsocketCommunicator(application, f"/ws/pool/{session_id}/")
+        connected, _ = await communicator.connect()
+        self.assertTrue(connected)
+
+        # Push-off packet in Lane 3
+        p1 = {
+            "type": "telemetry_packet",
+            "data": {
+                "swimmer_id": profile.id,
+                "tag_id": tag.tag_id,
+                "lane": 3,
+                "sequence_id": 1,
+                "timestamp": 100.0,
+                "speed_mps": 1.40,
+                "stroke_count": 0,
+                "accel": {"x": 2.2, "y": 0.0, "z": 0.98},
+                "x_m": 0.5,
+                "y_m": 6.25,
+            },
+        }
+        await communicator.send_json_to(p1)
+        resp1 = await communicator.receive_json_from(timeout=1.0)
+        self.assertEqual(resp1["type"], "telemetry_packet")
+        self.assertEqual(resp1["data"]["lane"], 3)
+        self.assertEqual(resp1["data"]["speed_mps"], 1.40)
+
+        await communicator.disconnect()

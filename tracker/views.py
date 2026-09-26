@@ -2,19 +2,94 @@ import json
 from django.http import JsonResponse
 from django.shortcuts import get_object_or_404, render, redirect
 from django.views.decorators.http import require_POST
-from .models import HardwareTag, LaneAssignment, PracticeSession, SwimmerProfile, PoolCourse, Team
-from .permissions import coach_or_admin_required, verify_swimmer_metric_access
 from django.utils import timezone
+
+from .models import (
+    HardwareTag,
+    LaneAssignment,
+    PoolCourse,
+    PracticeSession,
+    SwimmerProfile,
+    Team,
+    WorkoutSet,
+)
+from .permissions import coach_or_admin_required, verify_swimmer_metric_access
+
 
 @coach_or_admin_required
 def coach_session_view(request, session_id):
+    """
+    Renders the live coach deck dashboard with an 8-lane responsive grid,
+    real-time telemetry readouts, running clocks, and biometric status indicators.
+    """
     session = get_object_or_404(PracticeSession, id=session_id)
-    return JsonResponse({
-        "session_id": session.id,
-        "team": session.team.name,
-        "course": session.pool_course,
-        "status": session.status,
-    })
+    assignments = LaneAssignment.objects.filter(session=session).select_related('swimmer__user', 'tag')
+
+    assignment_by_lane = {a.lane_number: a for a in assignments}
+    lanes_data = []
+
+    for lane_num in range(1, 9):
+        assign = assignment_by_lane.get(lane_num)
+        if assign:
+            lanes_data.append({
+                "lane_number": lane_num,
+                "swimmer_id": assign.swimmer.id,
+                "swimmer_name": assign.swimmer.user.get_full_name() or assign.swimmer.user.username,
+                "threshold_velocity": assign.swimmer.threshold_velocity,
+                "tag_id": assign.tag.tag_id if assign.tag else None,
+                "battery_percentage": assign.tag.battery_percentage if assign.tag else 100,
+                "rssi": assign.tag.rssi if assign.tag else -65,
+                "state": "IDLE_AT_WALL",
+                "speed": 0.0,
+                "stroke_rate": 0.0,
+                "dps": 0.0,
+                "breakout_m": 0.0,
+                "lap_number": 1,
+                "rep_number": 1,
+                "set_number": 1,
+                "split_time": 0.0,
+                "last_rep_time": 0.0,
+                "effort_pct": 0.0,
+                "x_m": 0.5,
+                "is_active": True,
+            })
+        else:
+            lanes_data.append({
+                "lane_number": lane_num,
+                "swimmer_id": None,
+                "swimmer_name": "Unassigned",
+                "threshold_velocity": 0.0,
+                "tag_id": None,
+                "battery_percentage": None,
+                "rssi": None,
+                "state": "EMPTY",
+                "speed": 0.0,
+                "stroke_rate": 0.0,
+                "dps": 0.0,
+                "breakout_m": 0.0,
+                "lap_number": 0,
+                "rep_number": 0,
+                "set_number": 1,
+                "split_time": 0.0,
+                "last_rep_time": 0.0,
+                "effort_pct": 0.0,
+                "x_m": 0.0,
+                "is_active": False,
+            })
+
+    active_set = WorkoutSet.objects.filter(session=session).order_by('-set_order').first()
+
+    return render(
+        request,
+        'tracker/dashboard.html',
+        {
+            'session': session,
+            'lanes': list(range(1, 9)),
+            'active_set': active_set,
+            'lanes_json': json.dumps(lanes_data),
+            'pool_length': session.pool_length_meters() if hasattr(session, 'pool_length_meters') else 25.0,
+        },
+    )
 
 
 def swimmer_metrics_view(request, swimmer_id):
@@ -320,3 +395,79 @@ def index_view(request):
                 )
 
     return redirect('tracker:deck_staging', session_id=session.id)
+
+
+
+    """
+    Renders the live coach deck dashboard with an 8-lane responsive grid,
+    real-time telemetry readouts, running clocks, and biometric status indicators.
+    """
+    session = get_object_or_404(PracticeSession, id=session_id)
+    assignments = LaneAssignment.objects.filter(session=session).select_related('swimmer__user', 'tag')
+
+    # Index assignments by lane number (1 to 8)
+    assignment_by_lane = {a.lane_number: a for a in assignments}
+    lanes_data = []
+
+    for lane_num in range(1, 9):
+        assign = assignment_by_lane.get(lane_num)
+        if assign:
+            lanes_data.append({
+                "lane_number": lane_num,
+                "swimmer_id": assign.swimmer.id,
+                "swimmer_name": assign.swimmer.user.get_full_name() or assign.swimmer.user.username,
+                "threshold_velocity": assign.swimmer.threshold_velocity,
+                "tag_id": assign.tag.tag_id if assign.tag else None,
+                "battery_percentage": assign.tag.battery_percentage if assign.tag else 100,
+                "rssi": assign.tag.rssi if assign.tag else -65,
+                "state": "IDLE_AT_WALL",
+                "speed": 0.0,
+                "stroke_rate": 0.0,
+                "dps": 0.0,
+                "breakout_m": 0.0,
+                "lap_number": 1,
+                "rep_number": 1,
+                "set_number": 1,
+                "split_time": 0.0,
+                "last_rep_time": 0.0,
+                "effort_pct": 0.0,
+                "x_m": 0.5,
+                "is_active": True,
+            })
+        else:
+            lanes_data.append({
+                "lane_number": lane_num,
+                "swimmer_id": None,
+                "swimmer_name": "Unassigned",
+                "threshold_velocity": 0.0,
+                "tag_id": None,
+                "battery_percentage": None,
+                "rssi": None,
+                "state": "EMPTY",
+                "speed": 0.0,
+                "stroke_rate": 0.0,
+                "dps": 0.0,
+                "breakout_m": 0.0,
+                "lap_number": 0,
+                "rep_number": 0,
+                "set_number": 1,
+                "split_time": 0.0,
+                "last_rep_time": 0.0,
+                "effort_pct": 0.0,
+                "x_m": 0.0,
+                "is_active": False,
+            })
+
+    aactive_set = WorkoutSet.objects.filter(session=session).order_by('-set_order').first()
+
+    return render(
+        request,
+        'tracker/dashboard.html',
+        {
+            'session': session,
+            'lanes': list(range(1, 9)),
+            'active_set': active_set,
+            'lanes_json': json.dumps(lanes_data),
+            'pool_length': session.pool_length_meters() if hasattr(session, 'pool_length_meters') else 25.0,
+        },
+    )

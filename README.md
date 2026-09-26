@@ -1,4 +1,3 @@
-```markdown
 # Pool Deck Time Tracker (TimeTracker)
 
 A performance tracking and real-time analytics web application designed for competitive swim teams. The platform ingests telemetry from poolside compute units and swimmer wearables to display live workout metrics to coaches on deck and record historical split, stroke, and efficiency data for athletes.
@@ -36,15 +35,16 @@ TimeTracker/
 │   ├── persistence.py      # Event-driven async SQL persistence for completed reps and splits
 │   ├── routing.py          # WebSocket URL routing patterns
 │   ├── state_machine.py    # 4-state lifecycle, impulse push-off, backtracking, and metrics
-│   ├── static/             # Static assets (style.css with wet-deck touch ergonomics)
+│   ├── static/             # Static assets (style.css with wet-deck ergonomics)
 │   │   └── tracker/css/style.css
-│   ├── templates/          # Base template and touch-first deck staging interfaces
+│   ├── templates/          # Base template, deck staging, and live coach dashboard
 │   │   └── tracker/
 │   │       ├── base.html
+│   │       ├── dashboard.html
 │   │       └── staging.html
-│   ├── tests.py            # Complete test suite (Steps 1, 2, 3, and 4 validation)
-│   ├── urls.py             # Staging, pairing, swapping, unassigning, and metric routes
-│   └── views.py            # Deck staging view, 3-tap pair API, 1-tap swap modal API
+│   ├── tests.py            # Complete test suite (Steps 1 through 5 validation)
+│   ├── urls.py             # Staging, pairing, swapping, unassigning, and dashboard routes
+│   └── views.py            # Live dashboard view, deck staging view, 3-tap pair API, 1-tap swap modal API
 ├── manage.py
 └── README.md
 
@@ -84,6 +84,15 @@ TimeTracker/
 * **Live Status & Unassigned Pool:** Real-time battery meter bars, 4-bar RSSI link quality indicators (-60 to -95 dBm), online/offline status dots, and segmented tag pool tabs (`Unassigned`, `All Tags`, `Assigned`).
 * **Root Redirection:** Automatic routing from `/` to the active practice session staging view.
 
+### Step 5: Live Coach Deck Dashboard
+
+* **8-Lane Responsive Grid:** Multi-lane desktop/tablet layout (`dashboard.html`) showing real-time speed, cadence, DPS, breakout distance, and running split timers.
+* **Biometric State Pill Indicators:** Real-time visual feedback for `SWIMMING` (blue glow), `TURN` (warning amber), `WALL IDLE` (muted slate), and `DECK` (red alert).
+* **Miniature Pool Spatial Track:** Visual positioning marker reflecting real-time $x$-coordinate progress across the pool length.
+* **Outdoor Sunlight High-Contrast Engine:** Toggleable high-contrast monochrome light theme (`[data-theme="outdoor"]`) with stark black borders, zero eye-strain contrast, and high-visibility `#ffff00` fluorescent yellow timer digits for direct outdoor sun.
+* **Screen Wake-Lock API Integration:** Keeps the coach's tablet display awake indefinitely during active practices, with automatic re-acquisition on tab visibility changes.
+* **Wet-Deck Lock Controls:** Water-splash and false-touch protection shield that makes background controls inert while keeping live telemetry rolling; unlocked via a 2-second press-and-hold gesture with animated fill and haptic vibration feedback.
+
 ---
 
 ## Getting Started (Local Development)
@@ -113,18 +122,15 @@ python manage.py test tracker
 
 ```
 
-### 3. Run Development Server & Benchmarks
+### 3. Run Development Server
 
 ```powershell
-# Terminal 1: Start ASGI Server
 python manage.py runserver
-
-# Terminal 2: Run Step 4 Rapid Staging Benchmark
-python scripts/verify_step4_staging.py
 
 ```
 
-Open `http://127.0.0.1:8000/` in your browser to launch the Deck Staging interface.
+* **Deck Staging:** Open `http://127.0.0.1:8000/` in your browser.
+* **Coach Dashboard:** Tap "Launch Dashboard →" or navigate to `http://127.0.0.1:8000/api/tracker/session/1/`.
 
 ---
 
@@ -134,8 +140,6 @@ Open `http://127.0.0.1:8000/` in your browser to launch the Deck Staging interfa
 * [x] **Step 2:** Real-Time Telemetry Pipeline (ASGI, Redis Channel Layer, Jitter Buffer & 50-Stream Concurrency Verification)
 * [x] **Step 3:** State Machine Engine (Push-off detection, timestamp backtracking, metrics, and event persistence)
 * [x] **Step 4:** Touch-First Deck Staging & Tag Assignment Interface (3-tap pairing, 1-tap swap modal, live battery/RSSI)
-* [ ] **Step 5:** Live Coach Deck Dashboard (Multi-lane grid, outdoor high-contrast mode, wake-lock)
+* [x] **Step 5:** Live Coach Deck Dashboard (Multi-lane grid, outdoor high-contrast mode, wake-lock, deck lock)
 * [ ] **Step 6:** Swimmer Historical Portal & Interactive Performance Analytics
 * [ ] **Step 7:** Network Resilience, Snapshot Reconnection & Production AWS Deployment
-
-```

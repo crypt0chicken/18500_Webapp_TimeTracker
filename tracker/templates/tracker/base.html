@@ -1,10 +1,20 @@
 {% load static %}
 <!DOCTYPE html>
-<html lang="en">
+<html lang="en" data-theme="indoor">
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
     <title>{% block title %}TimeTracker Deck{% endblock %}</title>
+
+    <!-- Immediate Theme Bootstrap to prevent flash -->
+    <script>
+        (function() {
+            try {
+                const savedTheme = localStorage.getItem('timetracker_theme') || 'indoor';
+                document.documentElement.setAttribute('data-theme', savedTheme);
+            } catch (e) {}
+        })();
+    </script>
 
     <!-- Global Wet-Deck Stylesheet -->
     <link rel="stylesheet" href="{% static 'tracker/css/style.css' %}">
@@ -20,7 +30,46 @@
             <h1 style="font-size: 22px; font-weight: 800; letter-spacing: -0.5px;">TimeTracker Deck</h1>
             <p style="font-size: 14px; color: var(--text-secondary);">{% block session_subtitle %}Pool Deck Operations{% endblock %}</p>
         </div>
-        <div>
+
+        <div style="display: flex; align-items: center; gap: 10px; flex-wrap: wrap;">
+            <!-- Step 5.4: Deck Lock Toggle Button -->
+            <button
+                type="button"
+                id="deck-lock-btn"
+                class="deck-lock-btn"
+                onclick="toggleDeckLock()"
+                aria-label="Toggle Wet-Deck Lock"
+                title="Lock screen against accidental water splashes"
+            >
+                <span id="deck-lock-icon">🔓</span>
+                <span id="deck-lock-label">Lock Deck</span>
+            </button>
+
+            <!-- Step 5.3: Screen Wake-Lock API Control Button -->
+            <button
+                type="button"
+                id="wake-lock-btn"
+                class="wake-lock-btn wake-inactive"
+                onclick="toggleWakeLock()"
+                aria-label="Toggle Screen Wake Lock"
+                title="Prevent tablet display from sleeping"
+            >
+                <span id="wake-lock-icon">💤</span>
+                <span id="wake-lock-label">Awake: OFF</span>
+            </button>
+
+            <!-- Step 5.2: Outdoor High-Contrast Mode Toggle Button -->
+            <button
+                type="button"
+                id="theme-toggle-btn"
+                class="theme-toggle-btn"
+                onclick="toggleTheme()"
+                aria-label="Toggle Outdoor Sunlight Mode"
+            >
+                <span id="theme-icon">☀️</span>
+                <span id="theme-label">Outdoor Mode</span>
+            </button>
+
             {% block header_actions %}{% endblock %}
         </div>
     </header>
@@ -28,5 +77,290 @@
     <main class="container">
         {% block content %}{% endblock %}
     </main>
+
+    <!-- Step 5.4: Wet-Deck Lock Protection Shield & 2-Second Hold Unlock Widget -->
+    <div id="deck-lock-shield" class="deck-lock-shield" style="display: none;" role="dialog" aria-modal="true" aria-label="Wet-Deck Screen Lock Active">
+        <div class="deck-lock-floating-card">
+            <div class="deck-lock-status">
+                <span class="deck-lock-badge-icon">🔒</span>
+                <div>
+                    <div style="font-weight: 800; font-size: 16px;">Wet-Deck Lock Active</div>
+                    <div style="font-size: 12px; color: var(--text-secondary);">Water splash protection enabled &bull; Touch inputs locked &bull; Telemetry live</div>
+                </div>
+            </div>
+
+            <div
+                id="deck-unlock-hold-btn"
+                class="deck-unlock-hold-btn"
+                role="button"
+                tabindex="0"
+                aria-label="Press and hold for 2 seconds to unlock screen"
+            >
+                <div id="deck-unlock-progress-fill" class="deck-unlock-progress-fill"></div>
+                <div class="deck-unlock-btn-content">
+                    <span id="deck-unlock-btn-icon">⏱️</span>
+                    <span id="deck-unlock-btn-text">Press &amp; Hold 2s to Unlock</span>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <!-- Theme Controller Script -->
+    <script>
+        function applyTheme(theme) {
+            document.documentElement.setAttribute('data-theme', theme);
+            try {
+                localStorage.setItem('timetracker_theme', theme);
+            } catch (e) {}
+
+            const label = document.getElementById('theme-label');
+            const icon = document.getElementById('theme-icon');
+            if (label && icon) {
+                if (theme === 'outdoor') {
+                    label.textContent = 'Indoor Mode';
+                    icon.textContent = '🌙';
+                } else {
+                    label.textContent = 'Outdoor Mode';
+                    icon.textContent = '☀️';
+                }
+            }
+        }
+
+        function toggleTheme() {
+            const current = document.documentElement.getAttribute('data-theme') || 'indoor';
+            const next = current === 'outdoor' ? 'indoor' : 'outdoor';
+            applyTheme(next);
+        }
+
+        document.addEventListener('DOMContentLoaded', () => {
+            try {
+                const current = localStorage.getItem('timetracker_theme') || 'indoor';
+                applyTheme(current);
+            } catch (e) {}
+        });
+    </script>
+
+    <!-- Screen Wake-Lock API Controller Script -->
+    <script>
+        let wakeLock = null;
+        let wakeLockRequested = true;
+
+        function updateWakeLockUI(status) {
+            const btn = document.getElementById('wake-lock-btn');
+            const icon = document.getElementById('wake-lock-icon');
+            const label = document.getElementById('wake-lock-label');
+            if (!btn || !icon || !label) return;
+
+            btn.classList.remove('wake-active', 'wake-inactive', 'wake-unsupported');
+
+            if (status === 'active') {
+                btn.classList.add('wake-active');
+                icon.textContent = '⚡';
+                label.textContent = 'Awake: ON';
+                btn.setAttribute('title', 'Screen Wake Lock is active (preventing display timeout)');
+            } else if (status === 'inactive') {
+                btn.classList.add('wake-inactive');
+                icon.textContent = '💤';
+                label.textContent = 'Awake: OFF';
+                btn.setAttribute('title', 'Screen Wake Lock is inactive (display may sleep)');
+            } else {
+                btn.classList.add('wake-unsupported');
+                icon.textContent = '⚠️';
+                label.textContent = 'Awake: N/A';
+                btn.setAttribute('title', 'Screen Wake Lock API is not supported on this browser');
+            }
+        }
+
+        async function acquireWakeLock() {
+            if (!('wakeLock' in navigator)) {
+                updateWakeLockUI('unsupported');
+                return;
+            }
+
+            try {
+                wakeLock = await navigator.wakeLock.request('screen');
+                updateWakeLockUI('active');
+
+                wakeLock.addEventListener('release', () => {
+                    if (!wakeLockRequested) {
+                        updateWakeLockUI('inactive');
+                    }
+                });
+            } catch (err) {
+                console.warn('Wake Lock request rejected or failed:', err);
+                updateWakeLockUI('inactive');
+            }
+        }
+
+        async function releaseWakeLock() {
+            if (wakeLock !== null) {
+                try {
+                    await wakeLock.release();
+                } catch (e) {}
+                wakeLock = null;
+            }
+            updateWakeLockUI('inactive');
+        }
+
+        async function toggleWakeLock() {
+            if (!('wakeLock' in navigator)) {
+                alert('The Screen Wake Lock API is not supported on this device/browser.');
+                return;
+            }
+
+            wakeLockRequested = !wakeLockRequested;
+
+            if (wakeLockRequested) {
+                await acquireWakeLock();
+            } else {
+                await releaseWakeLock();
+            }
+        }
+
+        document.addEventListener('visibilitychange', async () => {
+            if (wakeLockRequested && document.visibilityState === 'visible') {
+                await acquireWakeLock();
+            }
+        });
+
+        document.addEventListener('DOMContentLoaded', () => {
+            if ('wakeLock' in navigator) {
+                acquireWakeLock();
+            } else {
+                updateWakeLockUI('unsupported');
+            }
+        });
+    </script>
+
+    <!-- Step 5.4: Wet-Deck Lock Controller Script -->
+    <script>
+        let deckLocked = false;
+        let unlockHoldTimer = null;
+        let unlockProgressAnim = null;
+        let holdStartTime = 0;
+        const HOLD_DURATION_MS = 2000;
+
+        function updateDeckLockUI() {
+            const btn = document.getElementById('deck-lock-btn');
+            const icon = document.getElementById('deck-lock-icon');
+            const label = document.getElementById('deck-lock-label');
+            const shield = document.getElementById('deck-lock-shield');
+
+            if (deckLocked) {
+                document.body.classList.add('deck-locked');
+                if (btn) btn.classList.add('locked');
+                if (icon) icon.textContent = '🔒';
+                if (label) label.textContent = 'Locked';
+                if (shield) shield.style.display = 'block';
+            } else {
+                document.body.classList.remove('deck-locked');
+                if (btn) btn.classList.remove('locked');
+                if (icon) icon.textContent = '🔓';
+                if (label) label.textContent = 'Lock Deck';
+                if (shield) shield.style.display = 'none';
+                resetUnlockProgress();
+            }
+        }
+
+        function lockDeck() {
+            deckLocked = true;
+            updateDeckLockUI();
+            if ('vibrate' in navigator) {
+                navigator.vibrate(50);
+            }
+        }
+
+        function unlockDeck() {
+            deckLocked = false;
+            updateDeckLockUI();
+            if ('vibrate' in navigator) {
+                navigator.vibrate([40, 80, 40]);
+            }
+        }
+
+        function toggleDeckLock() {
+            if (deckLocked) {
+                // When locked, tapping the header button reminds coach to use the hold gesture
+                const holdBtn = document.getElementById('deck-unlock-hold-btn');
+                if (holdBtn) {
+                    holdBtn.animate([
+                        { transform: 'scale(1)' },
+                        { transform: 'scale(1.04)' },
+                        { transform: 'scale(1)' }
+                    ], { duration: 250 });
+                }
+            } else {
+                lockDeck();
+            }
+        }
+
+        function resetUnlockProgress() {
+            if (unlockHoldTimer) {
+                clearTimeout(unlockHoldTimer);
+                unlockHoldTimer = null;
+            }
+            if (unlockProgressAnim) {
+                cancelAnimationFrame(unlockProgressAnim);
+                unlockProgressAnim = null;
+            }
+            holdStartTime = 0;
+
+            const fill = document.getElementById('deck-unlock-progress-fill');
+            const text = document.getElementById('deck-unlock-btn-text');
+            const holdBtn = document.getElementById('deck-unlock-hold-btn');
+
+            if (fill) fill.style.width = '0%';
+            if (text) text.textContent = 'Press & Hold 2s to Unlock';
+            if (holdBtn) holdBtn.classList.remove('holding');
+        }
+
+        function startUnlockHold(e) {
+            e.preventDefault();
+            holdStartTime = performance.now();
+
+            const holdBtn = document.getElementById('deck-unlock-hold-btn');
+            const text = document.getElementById('deck-unlock-btn-text');
+            const fill = document.getElementById('deck-unlock-progress-fill');
+
+            if (holdBtn) holdBtn.classList.add('holding');
+            if (text) text.textContent = 'Holding... Keep Pressing';
+
+            function updateFill(now) {
+                const elapsed = now - holdStartTime;
+                const progressPct = Math.min(100, (elapsed / HOLD_DURATION_MS) * 100);
+
+                if (fill) fill.style.width = progressPct + '%';
+
+                if (elapsed < HOLD_DURATION_MS) {
+                    unlockProgressAnim = requestAnimationFrame(updateFill);
+                } else {
+                    unlockDeck();
+                }
+            }
+
+            unlockProgressAnim = requestAnimationFrame(updateFill);
+        }
+
+        function cancelUnlockHold(e) {
+            if (holdStartTime > 0) {
+                resetUnlockProgress();
+            }
+        }
+
+        // Attach touch and pointer listeners for the 2-second hold-to-unlock gesture
+        document.addEventListener('DOMContentLoaded', () => {
+            const holdBtn = document.getElementById('deck-unlock-hold-btn');
+            if (!holdBtn) return;
+
+            // Pointer events support desktop mouse, wet-finger touch, and stylus
+            holdBtn.addEventListener('pointerdown', startUnlockHold);
+            holdBtn.addEventListener('pointerup', cancelUnlockHold);
+            holdBtn.addEventListener('pointerleave', cancelUnlockHold);
+            holdBtn.addEventListener('pointercancel', cancelUnlockHold);
+
+            // Context menu suppression to avoid long-press browser dialogs
+            holdBtn.addEventListener('contextmenu', (e) => e.preventDefault());
+        });
+    </script>
 </body>
 </html>

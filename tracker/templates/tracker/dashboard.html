@@ -1,0 +1,293 @@
+{% extends "tracker/base.html" %}
+
+{% block title %}Coach Deck Live - {{ session.team.name }}{% endblock %}
+
+{% block session_subtitle %}
+    {{ session.team.name }} &bull; {{ session.get_pool_course_display }} &bull; Coach {{ session.coach.username }}
+{% endblock %}
+
+{% block header_actions %}
+    <div style="display: flex; align-items: center; gap: 12px;">
+        <!-- Live Connection Status Pill -->
+        <div class="status-pill-live" id="connection-status-pill">
+            <span class="status-dot" :class="wsConnected ? 'online' : 'offline'"></span>
+            <span x-text="wsConnected ? 'LIVE FEED' : 'RECONNECTING'" :style="wsConnected ? 'color: var(--state-success);' : 'color: var(--state-warning);'"></span>
+        </div>
+
+        <!-- Link back to Deck Staging -->
+        <a href="{% url 'tracker:deck_staging' session.id %}" class="touch-btn" style="min-height: 48px; padding: 6px 14px; font-size: 14px; text-decoration: none;">
+            &larr; Staging &amp; Tags
+        </a>
+    </div>
+{% endblock %}
+
+{% block content %}
+<div
+    x-data="coachDashboard({
+        sessionId: {{ session.id }},
+        poolLength: {{ pool_length }},
+        initialLanes: {{ lanes_json|safe }}
+    })"
+    style="display: flex; flex-direction: column; gap: 18px;"
+>
+    <!-- Workout Set Banner (Styled for Indoor & Outdoor Themes) -->
+    <div class="pairing-guide-banner">
+        <div style="display: flex; align-items: center; gap: 16px; flex-wrap: wrap;">
+            <div>
+                <span style="font-size: 12px; font-weight: 800; color: var(--brand-accent); text-transform: uppercase;">Active Session Set</span>
+                <div style="font-size: 20px; font-weight: 800;">
+                    {% if active_set %}
+                        Set {{ active_set.set_order }}: {{ active_set.name }} &bull; {{ active_set.target_distance }}m ({{ active_set.target_reps }} Reps)
+                    {% else %}
+                        Set 1: Open Training / Baseline Pace
+                    {% endif %}
+                </div>
+            </div>
+        </div>
+
+        <div style="display: flex; align-items: center; gap: 12px;">
+            <div style="font-size: 14px; color: var(--text-secondary);">
+                Active Swimmers: <strong style="color: var(--text-primary);" x-text="lanes.filter(l => l.is_active).length"></strong> / 8
+            </div>
+        </div>
+    </div>
+
+    <!-- 8-Lane Responsive Grid -->
+    <div class="dashboard-grid">
+        <template x-for="lane in lanes" :key="lane.lane_number">
+            <div
+                class="live-lane-card"
+                :class="{
+                    'empty-lane': !lane.is_active,
+                    'state-swimming': lane.state === 'SWIMMING',
+                    'state-turn': lane.state === 'TURN_TRANSITION',
+                    'state-idle': lane.state === 'IDLE_AT_WALL'
+                }"
+            >
+                <!-- Top Row: Lane Number, Athlete Name, State Pill -->
+                <div>
+                    <div class="lane-card-top">
+                        <div style="display: flex; align-items: center; gap: 8px;">
+                            <span class="lane-badge" x-text="'LANE ' + lane.lane_number"></span>
+                            <span
+                                class="state-pill"
+                                :class="getStatePillClass(lane.state)"
+                                x-text="formatState(lane.state)"
+                            ></span>
+                        </div>
+                        <div x-show="lane.tag_id" style="font-size: 12px; color: var(--text-secondary);">
+                            <span x-text="lane.tag_id"></span>
+                            <span :class="lane.battery_percentage >= 70 ? 'batt-good' : (lane.battery_percentage >= 30 ? 'batt-med' : 'batt-low')" x-text="' (' + lane.battery_percentage + '%)'"></span>
+                        </div>
+                    </div>
+
+                    <div style="font-size: 17px; font-weight: 800; margin-top: 4px;" x-text="lane.swimmer_name"></div>
+                    <div style="font-size: 12px; color: var(--text-secondary);" x-show="lane.is_active">
+                        Set <span x-text="lane.set_number"></span> &bull; Rep <span x-text="lane.rep_number"></span> &bull; Lap <span x-text="lane.lap_number"></span>
+                    </div>
+                </div>
+
+                <!-- Clock / Live Split Display -->
+                <div class="clock-display-block">
+                    <div class="clock-timer-digits" x-text="formatTimer(lane.split_time)">00:00.0</div>
+                    <div class="clock-subtitle" x-text="lane.state === 'SWIMMING' ? 'LIVE SPLIT ELAPSED' : 'LAST REPETITION'"></div>
+                </div>
+
+                <!-- Metric Readouts: Speed, Cadence, DPS, Effort -->
+                <div class="metric-tile-grid">
+                    <div class="metric-tile">
+                        <span class="metric-label">Velocity</span>
+                        <span class="metric-val" x-text="lane.speed.toFixed(2) + ' m/s'">0.00 m/s</span>
+                    </div>
+                    <div class="metric-tile">
+                        <span class="metric-label">Cadence</span>
+                        <span class="metric-val" x-text="lane.stroke_rate.toFixed(0) + ' spm'">0 spm</span>
+                    </div>
+                    <div class="metric-tile">
+                        <span class="metric-label">DPS / Breakout</span>
+                        <span class="metric-val" x-text="lane.dps.toFixed(2) + 'm / ' + lane.breakout_m.toFixed(1) + 'm'">0.0m</span>
+                    </div>
+                    <div class="metric-tile">
+                        <span class="metric-label">Effort</span>
+                        <span class="metric-val" :style="lane.effort_pct >= 95 ? 'color: var(--state-success);' : ''" x-text="lane.effort_pct > 0 ? lane.effort_pct.toFixed(1) + '%' : '--'">--</span>
+                    </div>
+                </div>
+
+                <!-- Miniature Pool Spatial Position Track -->
+                <div class="pool-track" :title="'Swimmer at ' + lane.x_m.toFixed(1) + 'm'">
+                    <div
+                        class="pool-track-marker"
+                        :style="'left: ' + calculateMarkerPercent(lane.x_m) + '%;'"
+                    ></div>
+                </div>
+            </div>
+        </template>
+    </div>
+</div>
+
+<script>
+document.addEventListener('alpine:init', () => {
+    Alpine.data('coachDashboard', (config) => ({
+        sessionId: config.sessionId,
+        poolLength: config.poolLength || 25.0,
+        lanes: config.initialLanes || [],
+        wsConnected: false,
+        socket: null,
+        reconnectTimer: null,
+
+        init() {
+            this.initWebSocket();
+        },
+
+        initWebSocket() {
+            const protocol = window.location.protocol === 'https:' ? 'wss:' : 'ws:';
+            const wsUrl = `${protocol}//${window.location.host}/ws/pool/${this.sessionId}/`;
+
+            try {
+                this.socket = new WebSocket(wsUrl);
+
+                this.socket.onopen = () => {
+                    this.wsConnected = true;
+                    if (this.reconnectTimer) {
+                        clearTimeout(this.reconnectTimer);
+                        this.reconnectTimer = null;
+                    }
+                };
+
+                this.socket.onmessage = (event) => {
+                    try {
+                        const payload = JSON.parse(event.data);
+                        this.handleSocketEvent(payload);
+                    } catch (err) {
+                        console.error('Error parsing live dashboard socket message:', err);
+                    }
+                };
+
+                this.socket.onclose = () => {
+                    this.wsConnected = false;
+                    this.scheduleReconnect();
+                };
+
+                this.socket.onerror = (err) => {
+                    this.wsConnected = false;
+                    this.socket.close();
+                };
+            } catch (e) {
+                this.scheduleReconnect();
+            }
+        },
+
+        scheduleReconnect() {
+            if (!this.reconnectTimer) {
+                this.reconnectTimer = setTimeout(() => {
+                    this.initWebSocket();
+                }, 3000);
+            }
+        },
+
+        handleSocketEvent(payload) {
+            const msgType = payload.type;
+            const data = payload.data || {};
+
+            if (msgType === 'telemetry_packet') {
+                this.updateLiveTelemetry(data);
+            } else if (msgType === 'state_transition') {
+                this.updateStateTransition(data);
+            } else if (msgType === 'repetition_persisted') {
+                this.handleRepetitionSaved(data);
+            }
+        },
+
+        updateLiveTelemetry(data) {
+            const laneNum = data.lane;
+            const targetLane = this.lanes.find(l => l.lane_number === laneNum) ||
+                               this.lanes.find(l => l.swimmer_id === data.swimmer_id) ||
+                               this.lanes.find(l => l.tag_id === data.tag_id);
+
+            if (!targetLane) return;
+
+            targetLane.is_active = true;
+            if (data.speed_mps !== undefined) targetLane.speed = data.speed_mps;
+            if (data.stroke_rate_spm !== undefined) targetLane.stroke_rate = data.stroke_rate_spm;
+            if (data.x_m !== undefined) targetLane.x_m = data.x_m;
+            if (data.battery_percentage !== undefined) targetLane.battery_percentage = data.battery_percentage;
+            if (data.lap_number !== undefined) targetLane.lap_number = data.lap_number;
+
+            if (targetLane.state === 'SWIMMING' && data.timestamp) {
+                if (!targetLane.push_off_time) {
+                    targetLane.push_off_time = data.timestamp;
+                }
+                targetLane.split_time = Math.max(0.0, data.timestamp - targetLane.push_off_time);
+            }
+        },
+
+        updateStateTransition(data) {
+            const targetLane = this.lanes.find(l => l.swimmer_id == data.swimmer_id);
+            if (!targetLane) return;
+
+            targetLane.state = data.new_state;
+            const details = data.details || {};
+
+            if (data.new_state === 'SWIMMING') {
+                targetLane.push_off_time = details.push_off_timestamp || data.timestamp;
+                targetLane.rep_number = details.rep_number || targetLane.rep_number;
+                targetLane.set_number = details.set_number || targetLane.set_number;
+            } else if (data.new_state === 'TURN_TRANSITION') {
+                const lap = details.completed_lap;
+                if (lap) {
+                    targetLane.dps = lap.dps || targetLane.dps;
+                    targetLane.breakout_m = lap.breakout_distance_m || targetLane.breakout_m;
+                    targetLane.split_time = lap.split_time_seconds;
+                }
+            } else if (data.new_state === 'IDLE_AT_WALL') {
+                const rep = details.repetition_metrics;
+                if (rep) {
+                    targetLane.split_time = rep.total_time_seconds;
+                    targetLane.effort_pct = rep.effort_percentage;
+                    targetLane.last_rep_time = rep.total_time_seconds;
+                }
+                targetLane.push_off_time = null;
+            }
+        },
+
+        handleRepetitionSaved(data) {
+            const targetLane = this.lanes.find(l => l.swimmer_id == data.swimmer_id);
+            if (targetLane && data.total_time_seconds) {
+                targetLane.last_rep_time = data.total_time_seconds;
+                targetLane.split_time = data.total_time_seconds;
+            }
+        },
+
+        calculateMarkerPercent(x) {
+            if (!x || x <= 0) return 2;
+            const pct = (x / this.poolLength) * 96;
+            return Math.min(96, Math.max(2, pct));
+        },
+
+        formatState(state) {
+            if (state === 'IDLE_AT_WALL') return 'WALL IDLE';
+            if (state === 'TURN_TRANSITION') return 'TURN';
+            if (state === 'OUTSIDE_POOL') return 'DECK';
+            if (state === 'SWIMMING') return 'SWIMMING';
+            return 'STANDBY';
+        },
+
+        getStatePillClass(state) {
+            if (state === 'SWIMMING') return 'pill-swimming';
+            if (state === 'TURN_TRANSITION') return 'pill-turn';
+            if (state === 'OUTSIDE_POOL') return 'pill-deck';
+            if (state === 'IDLE_AT_WALL') return 'pill-idle';
+            return 'pill-empty';
+        },
+
+        formatTimer(sec) {
+            if (!sec || sec <= 0) return '00:00.0';
+            const m = Math.floor(sec / 60);
+            const s = Math.floor(sec % 60);
+            const ds = Math.floor((sec % 1) * 10);
+            return `${m.toString().padStart(2, '0')}:${s.toString().padStart(2, '0')}.${ds}`;
+        }
+    }));
+});
+</script>
+{% endblock %}
