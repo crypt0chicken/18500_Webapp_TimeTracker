@@ -25,7 +25,8 @@ TimeTracker/
 ├── scripts/
 │   ├── mock_telemetry_generator.py      # Simulates 1-50 concurrent swimmer data streams
 │   ├── verify_step2_concurrency.py      # Concurrency stress test (zero loss, <60ms p95 latency)
-│   └── verify_step4_staging.py          # Rapid 8-tag deck staging & pairing validation benchmark
+│   ├── verify_step4_staging.py          # Rapid 8-tag deck staging & pairing validation benchmark
+│   └── visual_live_test.py              # Zero-dependency multi-swimmer visual test runner
 ├── tracker/                # Swim analytics domain models, state machine, and persistence
 │   ├── admin.py            # Tabular inlines, filters, and tag assignment actions
 │   ├── consumers.py        # Async WebSocket consumer managing room groups & state transitions
@@ -35,14 +36,14 @@ TimeTracker/
 │   ├── persistence.py      # Event-driven async SQL persistence for completed reps and splits
 │   ├── routing.py          # WebSocket URL routing patterns
 │   ├── state_machine.py    # 4-state lifecycle, impulse push-off, backtracking, and metrics
-│   ├── static/             # Static assets (style.css with wet-deck ergonomics)
+│   ├── static/             # Static assets (style.css with wet-deck touch ergonomics)
 │   │   └── tracker/css/style.css
-│   ├── templates/          # Base template, deck staging, and live coach dashboard
+│   ├── templates/          # Base template, deck staging, and dual-view live coach dashboard
 │   │   └── tracker/
 │   │       ├── base.html
 │   │       ├── dashboard.html
 │   │       └── staging.html
-│   ├── tests.py            # Complete test suite (Steps 1 through 5 validation)
+│   ├── tests.py            # Complete test suite (Steps 1 through 5 + Multi-Swimmer Table validation)
 │   ├── urls.py             # Staging, pairing, swapping, unassigning, and dashboard routes
 │   └── views.py            # Live dashboard view, deck staging view, 3-tap pair API, 1-tap swap modal API
 ├── manage.py
@@ -84,14 +85,21 @@ TimeTracker/
 * **Live Status & Unassigned Pool:** Real-time battery meter bars, 4-bar RSSI link quality indicators (-60 to -95 dBm), online/offline status dots, and segmented tag pool tabs (`Unassigned`, `All Tags`, `Assigned`).
 * **Root Redirection:** Automatic routing from `/` to the active practice session staging view.
 
-### Step 5: Live Coach Deck Dashboard
+### Step 5: Live Coach Deck Dashboard & Multi-Swimmer Table View
 
-* **8-Lane Responsive Grid:** Multi-lane desktop/tablet layout (`dashboard.html`) showing real-time speed, cadence, DPS, breakout distance, and running split timers.
-* **Biometric State Pill Indicators:** Real-time visual feedback for `SWIMMING` (blue glow), `TURN` (warning amber), `WALL IDLE` (muted slate), and `DECK` (red alert).
-* **Miniature Pool Spatial Track:** Visual positioning marker reflecting real-time $x$-coordinate progress across the pool length.
-* **Outdoor Sunlight High-Contrast Engine:** Toggleable high-contrast monochrome light theme (`[data-theme="outdoor"]`) with stark black borders, zero eye-strain contrast, and high-visibility `#ffff00` fluorescent yellow timer digits for direct outdoor sun.
-* **Screen Wake-Lock API Integration:** Keeps the coach's tablet display awake indefinitely during active practices, with automatic re-acquisition on tab visibility changes.
-* **Wet-Deck Lock Controls:** Water-splash and false-touch protection shield that makes background controls inert while keeping live telemetry rolling; unlocked via a 2-second press-and-hold gesture with animated fill and haptic vibration feedback.
+* **Dual-View Architecture (`[ ⊞ Cards ]` vs `[ ☰ Table ]`):** Seamless one-tap toggle saved in `localStorage`, letting coaches choose between spatial lane cards and high-density multi-swimmer rosters.
+* **Multi-Swimmer Lane Support:** `LaneAssignment` supports `order_in_lane` tracking multiple circling athletes per lane (lead-off, 2nd, 3rd) with independent, decoupled running split timers.
+* **On-Demand Snapshot Sorting:** Tap any table column header (`Split Time`, `Velocity`, `Cadence`, `DPS`, `Effort %`, `Lane`) to freeze-sort the view at that exact moment, avoiding DOM jumping during live 10–20 Hz telemetry ticks.
+* **Wet-Deck Row Reordering:** Explicit touch-friendly `▲` / `▼` buttons ($\ge 44\text{px}$) per table row replace failure-prone wet drag-and-drop gestures.
+* **Dynamic State Slot:** Replaced the superfluous pool track bar with a high-utility contextual metric block:
+* **`SWIMMING`:** Live Pace Differential chip ($\pm\Delta t$ vs target/threshold velocity) and Breakout distance (`BO: X.Xm`).
+* **`IDLE_AT_WALL`:** Real-time Rest Interval stopwatch counting recovery time off the wall (`⏱️ Rest: MM:SS.S`).
+* **`TURN_TRANSITION`:** Dedicated flip turn execution timer (`🔄 Turn: X.Xs`).
+
+
+* **Outdoor Sunlight High-Contrast Engine:** Toggleable high-contrast monochrome light theme (`[data-theme="outdoor"]`) with stark black borders and high-visibility `#ffff00` fluorescent yellow timer digits for direct sun visibility.
+* **Screen Wake-Lock API Integration:** Prevents tablet display timeouts during active practices, with automatic re-acquisition on tab visibility changes.
+* **Wet-Deck Lock Controls:** Shield overlay that renders background touch controls inert against water splashes while keeping live telemetry streaming; unlocked via a 2-second press-and-hold gesture with progress animation and haptic vibration.
 
 ---
 
@@ -122,15 +130,19 @@ python manage.py test tracker
 
 ```
 
-### 3. Run Development Server
+### 3. Run Development Server & Visual Simulation
 
 ```powershell
+# Terminal 1: Start ASGI Server
 python manage.py runserver
+
+# Terminal 2: Run Multi-Swimmer Visual Test Suite
+python scripts/visual_live_test.py
 
 ```
 
 * **Deck Staging:** Open `http://127.0.0.1:8000/` in your browser.
-* **Coach Dashboard:** Tap "Launch Dashboard →" or navigate to `http://127.0.0.1:8000/api/tracker/session/1/`.
+* **Coach Dashboard:** Navigate to `http://127.0.0.1:8000/api/tracker/session/1/`.
 
 ---
 
@@ -140,6 +152,6 @@ python manage.py runserver
 * [x] **Step 2:** Real-Time Telemetry Pipeline (ASGI, Redis Channel Layer, Jitter Buffer & 50-Stream Concurrency Verification)
 * [x] **Step 3:** State Machine Engine (Push-off detection, timestamp backtracking, metrics, and event persistence)
 * [x] **Step 4:** Touch-First Deck Staging & Tag Assignment Interface (3-tap pairing, 1-tap swap modal, live battery/RSSI)
-* [x] **Step 5:** Live Coach Deck Dashboard (Multi-lane grid, outdoor high-contrast mode, wake-lock, deck lock)
+* [x] **Step 5:** Live Coach Deck Dashboard & Wet-Deck Controls (Cards & Multi-Swimmer Table View, Snapshot Sorting, Dynamic State Slot, Outdoor Mode, Wake-Lock, Deck Lock)
 * [ ] **Step 6:** Swimmer Historical Portal & Interactive Performance Analytics
 * [ ] **Step 7:** Network Resilience, Snapshot Reconnection & Production AWS Deployment

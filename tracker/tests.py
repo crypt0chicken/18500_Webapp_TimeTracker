@@ -32,7 +32,7 @@ User = get_user_model()
 
 class TrackerModelHierarchyTests(TestCase):
     def setUp(self):
-        self.team = Team.objects.create(name="Tritons Swim Club")
+        self.team = Team.objects.create(name="CMU Aquatics")
         self.coach_user = User.objects.create_user(
             username="coach_sarah",
             password="testpassword",
@@ -1610,7 +1610,11 @@ class CoachLiveDashboardStep51Tests(TestCase):
         self.assertIn("live-lane-card", content)
         self.assertIn("clock-timer-digits", content)
         self.assertIn("metric-tile-grid", content)
-        self.assertIn("pool-track", content)
+
+        # Dynamic State Slot verifies Pace Delta & Rest Timer replacing Position Bar
+        self.assertIn("dynamic-state-slot", content)
+        self.assertIn("delta-chip", content)
+        self.assertIn("rest-interval-chip", content)
 
         # Verify staged swimmer in Lane 1 is serialized
         self.assertIn('"lane_number": 1', content)
@@ -1620,8 +1624,6 @@ class CoachLiveDashboardStep51Tests(TestCase):
         # Verify all 8 lanes are present in template
         for lane_num in range(1, 9):
             self.assertIn(f'"lane_number": {lane_num}', content)
-
-
 from django.contrib.staticfiles import finders
 
 class OutdoorHighContrastStep52Tests(TestCase):
@@ -1863,3 +1865,84 @@ class StepFiveSpecificationValidationTests(TransactionTestCase):
         self.assertEqual(resp1["data"]["speed_mps"], 1.40)
 
         await communicator.disconnect()
+
+
+class MultiSwimmerTableViewTests(TestCase):
+    def setUp(self):
+        self.team = Team.objects.create(name="Multi Swimmer Swim Club")
+        self.coach = User.objects.create_user(
+            username="coach_multi_table",
+            password="securepassword123",
+            role=User.Role.COACH,
+        )
+        self.session = PracticeSession.objects.create(
+            team=self.team,
+            coach=self.coach,
+            pool_course=PoolCourse.SCY_25Y,
+            status=PracticeSession.SessionStatus.ACTIVE,
+        )
+
+        # Stage 2 swimmers in Lane 1 (Lead and Circling Swimmer)
+        self.u1 = User.objects.create_user(username="swimmer_lead", password="password", role=User.Role.SWIMMER)
+        self.p1 = SwimmerProfile.objects.create(user=self.u1, team=self.team, threshold_velocity=1.45)
+        self.t1 = HardwareTag.objects.create(tag_id="TAG_LEAD_1", battery_percentage=95, active_swimmer=self.p1)
+        self.assign1 = LaneAssignment.objects.create(
+            session=self.session,
+            swimmer=self.p1,
+            tag=self.t1,
+            lane_number=1,
+            order_in_lane=1,
+        )
+
+        self.u2 = User.objects.create_user(username="swimmer_second", password="password", role=User.Role.SWIMMER)
+        self.p2 = SwimmerProfile.objects.create(user=self.u2, team=self.team, threshold_velocity=1.40)
+        self.t2 = HardwareTag.objects.create(tag_id="TAG_SEC_2", battery_percentage=88, active_swimmer=self.p2)
+        self.assign2 = LaneAssignment.objects.create(
+            session=self.session,
+            swimmer=self.p2,
+            tag=self.t2,
+            lane_number=1,
+            order_in_lane=2,
+        )
+
+        self.client = Client()
+
+    def test_dashboard_renders_view_toggle_and_table_elements(self):
+        self.client.login(username="coach_multi_table", password="securepassword123")
+        url = reverse('tracker:coach_session', kwargs={'session_id': self.session.id})
+        response = self.client.get(url)
+
+        self.assertEqual(response.status_code, 200)
+        content = response.content.decode('utf-8')
+
+        # 1. Verify View Mode Switcher
+        self.assertIn("view-toggle-group", content)
+        self.assertIn("view-toggle-btn", content)
+        self.assertIn("Cards", content)
+        self.assertIn("Table", content)
+        self.assertIn("switchView('table')", content)
+
+        # 2. Verify Table View Container & Sort Headers
+        self.assertIn("dashboard-table-container", content)
+        self.assertIn("dashboard-table", content)
+        self.assertIn("triggerSort('lane_number')", content)
+        self.assertIn("triggerSort('swimmer_name')", content)
+        self.assertIn("triggerSort('split_time')", content)
+        self.assertIn("triggerSort('speed')", content)
+        self.assertIn("triggerSort('effort_pct')", content)
+
+        # 3. Verify Manual Reorder Action Buttons (▲ / ▼)
+        self.assertIn("reorder-btn", content)
+        self.assertIn("moveSwimmer(idx, -1)", content)
+        self.assertIn("moveSwimmer(idx, 1)", content)
+
+        # 4. Verify athlete-centric JSON contains both Lane 1 swimmers
+        self.assertIn("swimmer_lead", content)
+        self.assertIn("swimmer_second", content)
+        self.assertIn('"order_in_lane": 1', content)
+        self.assertIn('"order_in_lane": 2', content)
+
+    def test_lane_assignment_order_in_lane_attribute(self):
+        self.assertEqual(self.assign1.order_in_lane, 1)
+        self.assertEqual(self.assign2.order_in_lane, 2)
+        self.assertEqual(str(self.assign1), "Lane 1 (#1): swimmer_lead (TAG_LEAD_1)")

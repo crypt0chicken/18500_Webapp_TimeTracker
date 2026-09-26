@@ -7,30 +7,24 @@
 {% endblock %}
 
 {% block header_actions %}
-    <div style="display: flex; align-items: center; gap: 12px;">
-        <!-- Live Connection Status Pill -->
-        <div class="status-pill-live" id="connection-status-pill">
-            <span class="status-dot" :class="wsConnected ? 'online' : 'offline'"></span>
-            <span x-text="wsConnected ? 'LIVE FEED' : 'RECONNECTING'" :style="wsConnected ? 'color: var(--state-success);' : 'color: var(--state-warning);'"></span>
-        </div>
-
-        <!-- Link back to Deck Staging -->
-        <a href="{% url 'tracker:deck_staging' session.id %}" class="touch-btn" style="min-height: 48px; padding: 6px 14px; font-size: 14px; text-decoration: none;">
-            &larr; Staging &amp; Tags
-        </a>
-    </div>
+    <a href="{% url 'tracker:deck_staging' session.id %}" class="touch-btn" style="min-height: 48px; padding: 6px 14px; font-size: 14px; text-decoration: none;">
+        &larr; Staging &amp; Tags
+    </a>
 {% endblock %}
 
 {% block content %}
+<!-- Safe JSON payload containers -->
+<script id="lanes-data-json" type="application/json">{{ lanes_json|safe }}</script>
+<script id="swimmers-data-json" type="application/json">{{ swimmers_json|safe }}</script>
+
 <div
     x-data="coachDashboard({
         sessionId: {{ session.id }},
-        poolLength: {{ pool_length }},
-        initialLanes: {{ lanes_json|safe }}
+        poolLength: {{ pool_length }}
     })"
     style="display: flex; flex-direction: column; gap: 18px;"
 >
-    <!-- Workout Set Banner (Styled for Indoor & Outdoor Themes) -->
+    <!-- Workout Set Banner with View Toggle Switch -->
     <div class="pairing-guide-banner">
         <div style="display: flex; align-items: center; gap: 16px; flex-wrap: wrap;">
             <div>
@@ -45,15 +39,56 @@
             </div>
         </div>
 
-        <div style="display: flex; align-items: center; gap: 12px;">
+        <div style="display: flex; align-items: center; gap: 14px; flex-wrap: wrap;">
+            <!-- View Mode Toggle: Cards vs Table -->
+            <div class="view-toggle-group">
+                <button
+                    type="button"
+                    class="view-toggle-btn"
+                    :class="{ 'active': viewMode === 'cards' }"
+                    @click="switchView('cards')"
+                    title="Switch to Lane Cards Grid"
+                >
+                    ⊞ Cards
+                </button>
+                <button
+                    type="button"
+                    class="view-toggle-btn"
+                    :class="{ 'active': viewMode === 'table' }"
+                    @click="switchView('table')"
+                    title="Switch to Multi-Swimmer Table View"
+                >
+                    ☰ Table
+                </button>
+            </div>
+
+            <!-- Live Telemetry Status Pill -->
+            <div class="status-pill-live" id="connection-status-pill">
+                <span class="status-dot" :class="wsConnected ? 'online' : 'offline'"></span>
+                <span x-text="wsConnected ? 'LIVE FEED' : 'RECONNECTING'" :style="wsConnected ? 'color: var(--state-success);' : 'color: var(--state-warning);'"></span>
+            </div>
+
             <div style="font-size: 14px; color: var(--text-secondary);">
-                Active Swimmers: <strong style="color: var(--text-primary);" x-text="lanes.filter(l => l.is_active).length"></strong> / 8
+                Active: <strong style="color: var(--text-primary);" x-text="swimmers.filter(s => s.is_active).length"></strong> Swimmers
             </div>
         </div>
     </div>
 
-    <!-- 8-Lane Responsive Grid -->
-    <div class="dashboard-grid">
+    <!-- Active Sort Snapshot Indicator (Table View) -->
+    <div x-show="viewMode === 'table' && sortField" style="display: flex; align-items: center; justify-content: space-between; padding: 0 4px;">
+        <span class="sort-snapshot-pill">
+            <span>Snapshot sorted by: <strong x-text="formatSortField(sortField)"></strong> (<span x-text="sortDirection.toUpperCase()"></span>)</span>
+            <button type="button" @click="clearSort()" style="background: none; border: none; color: var(--state-danger); cursor: pointer; font-weight: 800; font-size: 14px; margin-left: 6px;">✕ Reset</button>
+        </span>
+        <span style="font-size: 12px; color: var(--text-secondary);">
+            Rows remain locked during live telemetry. Tap headers to re-sort.
+        </span>
+    </div>
+
+    <!-- ====================================================================
+         VIEW 1: Multi-Lane Card Grid
+         ==================================================================== -->
+    <div class="dashboard-grid" x-show="viewMode === 'cards'">
         <template x-for="lane in lanes" :key="lane.lane_number">
             <div
                 class="live-lane-card"
@@ -64,7 +99,6 @@
                     'state-idle': lane.state === 'IDLE_AT_WALL'
                 }"
             >
-                <!-- Top Row: Lane Number, Athlete Name, State Pill -->
                 <div>
                     <div class="lane-card-top">
                         <div style="display: flex; align-items: center; gap: 8px;">
@@ -84,6 +118,9 @@
                     <div style="font-size: 17px; font-weight: 800; margin-top: 4px;" x-text="lane.swimmer_name"></div>
                     <div style="font-size: 12px; color: var(--text-secondary);" x-show="lane.is_active">
                         Set <span x-text="lane.set_number"></span> &bull; Rep <span x-text="lane.rep_number"></span> &bull; Lap <span x-text="lane.lap_number"></span>
+                        <template x-if="getLaneSwimmers(lane.lane_number).length > 1">
+                            <span style="color: var(--brand-accent); font-weight: 700;" x-text="' &bull; +' + (getLaneSwimmers(lane.lane_number).length - 1) + ' Circling'"></span>
+                        </template>
                     </div>
                 </div>
 
@@ -93,7 +130,7 @@
                     <div class="clock-subtitle" x-text="lane.state === 'SWIMMING' ? 'LIVE SPLIT ELAPSED' : 'LAST REPETITION'"></div>
                 </div>
 
-                <!-- Metric Readouts: Speed, Cadence, DPS, Effort -->
+                <!-- Metric Readouts -->
                 <div class="metric-tile-grid">
                     <div class="metric-tile">
                         <span class="metric-label">Velocity</span>
@@ -113,181 +150,554 @@
                     </div>
                 </div>
 
-                <!-- Miniature Pool Spatial Position Track -->
-                <div class="pool-track" :title="'Swimmer at ' + lane.x_m.toFixed(1) + 'm'">
-                    <div
-                        class="pool-track-marker"
-                        :style="'left: ' + calculateMarkerPercent(lane.x_m) + '%;'"
-                    ></div>
+                <!-- Dynamic State Slot (Replaces Position Bar in Card View) -->
+                <div class="dynamic-state-slot">
+                    <!-- 1. SWIMMING: Pace Delta vs Goal & Breakout Distance -->
+                    <template x-if="lane.state === 'SWIMMING'">
+                        <div style="display: flex; align-items: center; justify-content: space-between; width: 100%;">
+                            <span class="delta-chip" :class="getPaceDeltaClass(lane)">
+                                <span x-text="getPaceDelta(lane).formatted"></span>
+                                <span style="font-size: 10px; font-weight: 700; opacity: 0.85;">PACE Δ</span>
+                            </span>
+                            <span class="breakout-badge" x-text="'BO: ' + (lane.breakout_m > 0 ? lane.breakout_m.toFixed(1) + 'm' : '--')"></span>
+                        </div>
+                    </template>
+
+                    <!-- 2. IDLE_AT_WALL: Rest Interval Stopwatch -->
+                    <template x-if="lane.state === 'IDLE_AT_WALL'">
+                        <div class="rest-interval-chip">
+                            <span class="rest-label">⏱️ Rest Interval</span>
+                            <span class="rest-timer-digits" x-text="formatTimer(getRestSeconds(lane))">00:00.0</span>
+                        </div>
+                    </template>
+
+                    <!-- 3. TURN_TRANSITION: Flip Turn Execution Time -->
+                    <template x-if="lane.state === 'TURN_TRANSITION'">
+                        <div class="turn-exec-chip">
+                            <span>🔄 Turn:</span>
+                            <span x-text="(lane.turn_time > 0 ? lane.turn_time.toFixed(2) + 's' : 'In Rotation')"></span>
+                        </div>
+                    </template>
+
+                    <!-- 4. OUTSIDE_POOL: Deck Status -->
+                    <template x-if="lane.state === 'OUTSIDE_POOL'">
+                        <span style="color: var(--state-danger); font-size: 13px; font-weight: 800;">⚠️ Athlete On Deck</span>
+                    </template>
+
+                    <!-- 5. EMPTY / STANDBY -->
+                    <template x-if="lane.state === 'EMPTY' || !lane.is_active">
+                        <span style="color: var(--text-secondary); font-size: 13px; text-align: center; width: 100%;">Standby</span>
+                    </template>
                 </div>
             </div>
         </template>
+    </div>
+
+    <!-- ====================================================================
+         VIEW 2: Multi-Swimmer Sortable Table View
+         ==================================================================== -->
+    <div class="dashboard-table-container" x-show="viewMode === 'table'">
+        <table class="dashboard-table">
+            <thead>
+                <tr>
+                    <th style="width: 100px; text-align: center;">Order</th>
+                    <th class="sortable" :class="{ 'active-sort': sortField === 'lane_number' }" @click="triggerSort('lane_number')">
+                        Lane <span x-text="sortIcon('lane_number')"></span>
+                    </th>
+                    <th class="sortable" :class="{ 'active-sort': sortField === 'swimmer_name' }" @click="triggerSort('swimmer_name')">
+                        Swimmer &amp; Tag <span x-text="sortIcon('swimmer_name')"></span>
+                    </th>
+                    <th class="sortable" :class="{ 'active-sort': sortField === 'state' }" @click="triggerSort('state')">
+                        Status <span x-text="sortIcon('state')"></span>
+                    </th>
+                    <th class="sortable" :class="{ 'active-sort': sortField === 'split_time' }" @click="triggerSort('split_time')" style="text-align: right;">
+                        Split Time <span x-text="sortIcon('split_time')"></span>
+                    </th>
+                    <th class="sortable" :class="{ 'active-sort': sortField === 'speed' }" @click="triggerSort('speed')" style="text-align: right;">
+                        Speed <span x-text="sortIcon('speed')"></span>
+                    </th>
+                    <th class="sortable" :class="{ 'active-sort': sortField === 'stroke_rate' }" @click="triggerSort('stroke_rate')" style="text-align: right;">
+                        Cadence <span x-text="sortIcon('stroke_rate')"></span>
+                    </th>
+                    <th class="sortable" :class="{ 'active-sort': sortField === 'dps' }" @click="triggerSort('dps')" style="text-align: right;">
+                        DPS <span x-text="sortIcon('dps')"></span>
+                    </th>
+                    <th class="sortable" :class="{ 'active-sort': sortField === 'effort_pct' }" @click="triggerSort('effort_pct')" style="text-align: right;">
+                        Effort % <span x-text="sortIcon('effort_pct')"></span>
+                    </th>
+                    <!-- Replaced Position header with Dynamic State Slot header -->
+                    <th style="width: 170px; text-align: center;">Pace Δ / Rest</th>
+                </tr>
+            </thead>
+            <tbody>
+                <template x-for="(s, idx) in swimmers" :key="s.swimmer_id">
+                    <tr>
+                        <!-- Manual Reorder Action Buttons -->
+                        <td style="text-align: center;">
+                            <div style="display: inline-flex; align-items: center; gap: 4px;">
+                                <button
+                                    type="button"
+                                    class="reorder-btn"
+                                    :disabled="idx === 0"
+                                    @click="moveSwimmer(idx, -1)"
+                                    title="Move Swimmer Up"
+                                    aria-label="Move Up"
+                                >
+                                    ▲
+                                </button>
+                                <button
+                                    type="button"
+                                    class="reorder-btn"
+                                    :disabled="idx === swimmers.length - 1"
+                                    @click="moveSwimmer(idx, 1)"
+                                    title="Move Swimmer Down"
+                                    aria-label="Move Down"
+                                >
+                                    ▼
+                                </button>
+                            </div>
+                        </td>
+
+                        <!-- Lane Badge -->
+                        <td>
+                            <span class="lane-badge" style="font-size: 16px;" x-text="'L' + s.lane_number"></span>
+                            <span
+                                style="font-size: 11px; color: var(--text-secondary); margin-left: 4px;"
+                                x-text="s.order_in_lane === 1 ? '(Lead)' : '(#' + s.order_in_lane + ')'"
+                            ></span>
+                        </td>
+
+                        <!-- Swimmer Name & Tag -->
+                        <td>
+                            <div style="font-weight: 800; font-size: 16px;" x-text="s.swimmer_name"></div>
+                            <div style="font-size: 12px; color: var(--text-secondary);">
+                                <span x-text="s.tag_id || 'No Tag'"></span>
+                                <span :class="s.battery_percentage >= 70 ? 'batt-good' : (s.battery_percentage >= 30 ? 'batt-med' : 'batt-low')" x-text="' &bull; ' + s.battery_percentage + '%'"></span>
+                            </div>
+                        </td>
+
+                        <!-- State Pill -->
+                        <td>
+                            <span
+                                class="state-pill"
+                                :class="getStatePillClass(s.state)"
+                                x-text="formatState(s.state)"
+                            ></span>
+                        </td>
+
+                        <!-- Running / Finished Split Timer -->
+                        <td style="text-align: right;">
+                            <span
+                                style="font-family: monospace; font-size: 20px; font-weight: 900;"
+                                :style="s.state === 'SWIMMING' ? 'color: var(--brand-accent);' : 'color: #ffffff;'"
+                                x-text="formatTimer(s.split_time)"
+                            >
+                                00:00.0
+                            </span>
+                        </td>
+
+                        <!-- Speed (m/s) -->
+                        <td style="text-align: right; font-weight: 800;" x-text="s.speed.toFixed(2) + ' m/s'"></td>
+
+                        <!-- Cadence (SPM) -->
+                        <td style="text-align: right; font-weight: 800;" x-text="s.stroke_rate.toFixed(0) + ' spm'"></td>
+
+                        <!-- DPS (m) -->
+                        <td style="text-align: right; font-weight: 800;" x-text="s.dps.toFixed(2) + 'm'"></td>
+
+                        <!-- Effort % -->
+                        <td
+                            style="text-align: right; font-weight: 800;"
+                            :style="s.effort_pct >= 95 ? 'color: var(--state-success);' : ''"
+                            x-text="s.effort_pct > 0 ? s.effort_pct.toFixed(1) + '%' : '--'"
+                        ></td>
+
+                        <!-- Dynamic State Slot (Replaces Position Bar in Table View) -->
+                        <td>
+                            <div class="dynamic-state-slot" style="min-height: 38px; padding: 4px 8px;">
+                                <!-- 1. SWIMMING: Pace Delta -->
+                                <template x-if="s.state === 'SWIMMING'">
+                                    <div style="display: flex; align-items: center; justify-content: space-between; width: 100%;">
+                                        <span class="delta-chip" :class="getPaceDeltaClass(s)">
+                                            <span x-text="getPaceDelta(s).formatted"></span>
+                                        </span>
+                                        <span class="breakout-badge" x-text="s.breakout_m > 0 ? s.breakout_m.toFixed(1) + 'm' : '--'"></span>
+                                    </div>
+                                </template>
+
+                                <!-- 2. IDLE_AT_WALL: Rest Timer -->
+                                <template x-if="s.state === 'IDLE_AT_WALL'">
+                                    <div class="rest-interval-chip">
+                                        <span style="font-size: 11px; font-weight: 800; color: var(--text-secondary);">Rest:</span>
+                                        <span class="rest-timer-digits" style="font-size: 14px;" x-text="formatTimer(getRestSeconds(s))">00:00.0</span>
+                                    </div>
+                                </template>
+
+                                <!-- 3. TURN_TRANSITION: Turn Time -->
+                                <template x-if="s.state === 'TURN_TRANSITION'">
+                                    <div class="turn-exec-chip" style="font-size: 12px;">
+                                        <span>🔄 Turn</span>
+                                        <span x-text="s.turn_time > 0 ? s.turn_time.toFixed(1) + 's' : ''"></span>
+                                    </div>
+                                </template>
+
+                                <!-- 4. OUTSIDE_POOL: Deck -->
+                                <template x-if="s.state === 'OUTSIDE_POOL'">
+                                    <span style="color: var(--state-danger); font-size: 12px; font-weight: 800;">Deck</span>
+                                </template>
+
+                                <!-- 5. STANDBY -->
+                                <template x-if="s.state === 'EMPTY' || !s.is_active">
+                                    <span style="color: var(--text-secondary); font-size: 12px; text-align: center; width: 100%;">--</span>
+                                </template>
+                            </div>
+                        </td>
+                    </tr>
+                </template>
+
+                <tr x-show="swimmers.length === 0">
+                    <td colspan="10" style="text-align: center; color: var(--text-secondary); padding: 32px 0;">
+                        No swimmers currently staged in this practice session.
+                    </td>
+                </tr>
+            </tbody>
+        </table>
     </div>
 </div>
 
 <script>
 document.addEventListener('alpine:init', () => {
-    Alpine.data('coachDashboard', (config) => ({
-        sessionId: config.sessionId,
-        poolLength: config.poolLength || 25.0,
-        lanes: config.initialLanes || [],
-        wsConnected: false,
-        socket: null,
-        reconnectTimer: null,
+    Alpine.data('coachDashboard', (config) => {
+        const getJson = (id) => {
+            const el = document.getElementById(id);
+            if (el && el.textContent.trim()) {
+                try { return JSON.parse(el.textContent); } catch (e) { return []; }
+            }
+            return [];
+        };
 
-        init() {
-            this.initWebSocket();
-        },
+        const initialSwimmers = getJson('swimmers-data-json');
+        const initialLanes = getJson('lanes-data-json');
 
-        initWebSocket() {
-            const protocol = window.location.protocol === 'https:' ? 'wss:' : 'ws:';
-            const wsUrl = `${protocol}//${window.location.host}/ws/pool/${this.sessionId}/`;
+        return {
+            sessionId: config.sessionId,
+            poolLength: config.poolLength || 25.0,
+            lanes: initialLanes,
+            swimmers: initialSwimmers,
 
-            try {
-                this.socket = new WebSocket(wsUrl);
+            viewMode: localStorage.getItem('timetracker_dashboard_view') || 'cards',
 
-                this.socket.onopen = () => {
-                    this.wsConnected = true;
-                    if (this.reconnectTimer) {
-                        clearTimeout(this.reconnectTimer);
-                        this.reconnectTimer = null;
+            sortField: null,
+            sortDirection: 'asc',
+
+            wsConnected: false,
+            socket: null,
+            reconnectTimer: null,
+            clockTimer: null,
+            nowTs: Date.now() / 1000,
+
+            init() {
+                this.initWebSocket();
+                // 100ms ticker for running timers and rest elapsed clocks
+                this.clockTimer = setInterval(() => {
+                    this.nowTs = Date.now() / 1000;
+                }, 100);
+            },
+
+            destroy() {
+                if (this.clockTimer) clearInterval(this.clockTimer);
+            },
+
+            switchView(mode) {
+                this.viewMode = mode;
+                try {
+                    localStorage.setItem('timetracker_dashboard_view', mode);
+                } catch (e) {}
+            },
+
+            triggerSort(field) {
+                if (this.sortField === field) {
+                    this.sortDirection = this.sortDirection === 'asc' ? 'desc' : 'asc';
+                } else {
+                    this.sortField = field;
+                    this.sortDirection = (field === 'split_time' || field === 'lane_number' || field === 'swimmer_name') ? 'asc' : 'desc';
+                }
+                this.applySnapshotSort();
+            },
+
+            applySnapshotSort() {
+                if (!this.sortField) return;
+                const field = this.sortField;
+                const dir = this.sortDirection === 'asc' ? 1 : -1;
+
+                this.swimmers.sort((a, b) => {
+                    let valA = a[field];
+                    let valB = b[field];
+
+                    if (typeof valA === 'string') {
+                        return dir * valA.localeCompare(valB);
                     }
-                };
+                    if (valA === undefined || valA === null) valA = 0;
+                    if (valB === undefined || valB === null) valB = 0;
+                    return dir * (valA - valB);
+                });
+            },
 
-                this.socket.onmessage = (event) => {
-                    try {
-                        const payload = JSON.parse(event.data);
-                        this.handleSocketEvent(payload);
-                    } catch (err) {
-                        console.error('Error parsing live dashboard socket message:', err);
-                    }
-                };
+            clearSort() {
+                this.sortField = null;
+                this.sortDirection = 'asc';
+                this.swimmers.sort((a, b) => {
+                    if (a.lane_number !== b.lane_number) return a.lane_number - b.lane_number;
+                    return (a.order_in_lane || 1) - (b.order_in_lane || 1);
+                });
+            },
 
-                this.socket.onclose = () => {
-                    this.wsConnected = false;
+            sortIcon(field) {
+                if (this.sortField !== field) return '↕';
+                return this.sortDirection === 'asc' ? '↑' : '↓';
+            },
+
+            formatSortField(f) {
+                const map = {
+                    lane_number: 'Lane',
+                    swimmer_name: 'Athlete Name',
+                    state: 'Status',
+                    split_time: 'Split Time',
+                    speed: 'Velocity',
+                    stroke_rate: 'Cadence',
+                    dps: 'DPS',
+                    effort_pct: 'Effort %'
+                };
+                return map[f] || f;
+            },
+
+            moveSwimmer(index, delta) {
+                const targetIndex = index + delta;
+                if (targetIndex < 0 || targetIndex >= this.swimmers.length) return;
+
+                const temp = this.swimmers[index];
+                this.swimmers[index] = this.swimmers[targetIndex];
+                this.swimmers[targetIndex] = temp;
+                this.swimmers = [...this.swimmers];
+            },
+
+            getLaneSwimmers(laneNum) {
+                return this.swimmers.filter(s => s.lane_number === laneNum);
+            },
+
+            // Dynamic State Slot Calculators
+            getPaceDelta(athlete) {
+                if (athlete.state !== 'SWIMMING' || !athlete.split_time || athlete.split_time <= 0) {
+                    return { delta: 0, formatted: '--' };
+                }
+
+                const targetVelocity = athlete.threshold_velocity > 0 ? athlete.threshold_velocity : 1.40;
+                const lap = athlete.lap_number || 1;
+
+                // Determine distance traveled across pool
+                const lapProgress = (lap % 2 === 1) ? athlete.x_m : (this.poolLength - athlete.x_m);
+                const distanceTraveled = Math.max(1.0, ((lap - 1) * this.poolLength) + Math.max(0, lapProgress));
+
+                const expectedSeconds = distanceTraveled / targetVelocity;
+                const delta = athlete.split_time - expectedSeconds;
+
+                if (Math.abs(delta) < 0.05) {
+                    return { delta: 0, formatted: 'EVEN' };
+                }
+
+                const sign = delta > 0 ? '+' : '−';
+                const formatted = `${sign}${Math.abs(delta).toFixed(1)}s`;
+                return { delta, formatted };
+            },
+
+            getPaceDeltaClass(athlete) {
+                const p = this.getPaceDelta(athlete);
+                if (p.formatted === '--' || p.formatted === 'EVEN') return 'delta-onpace';
+                return p.delta < 0 ? 'delta-ahead' : 'delta-behind';
+            },
+
+            getRestSeconds(athlete) {
+                if (!athlete.wall_touch_time) return 0.0;
+                return Math.max(0.0, this.nowTs - athlete.wall_touch_time);
+            },
+
+            initWebSocket() {
+                const protocol = window.location.protocol === 'https:' ? 'wss:' : 'ws:';
+                const wsUrl = `${protocol}//${window.location.host}/ws/pool/${this.sessionId}/`;
+
+                try {
+                    this.socket = new WebSocket(wsUrl);
+
+                    this.socket.onopen = () => {
+                        this.wsConnected = true;
+                        if (this.reconnectTimer) {
+                            clearTimeout(this.reconnectTimer);
+                            this.reconnectTimer = null;
+                        }
+                    };
+
+                    this.socket.onmessage = (event) => {
+                        try {
+                            const payload = JSON.parse(event.data);
+                            this.handleSocketEvent(payload);
+                        } catch (err) {
+                            console.error('Error parsing dashboard socket packet:', err);
+                        }
+                    };
+
+                    this.socket.onclose = () => {
+                        this.wsConnected = false;
+                        this.scheduleReconnect();
+                    };
+
+                    this.socket.onerror = () => {
+                        this.wsConnected = false;
+                        this.socket.close();
+                    };
+                } catch (e) {
                     this.scheduleReconnect();
-                };
-
-                this.socket.onerror = (err) => {
-                    this.wsConnected = false;
-                    this.socket.close();
-                };
-            } catch (e) {
-                this.scheduleReconnect();
-            }
-        },
-
-        scheduleReconnect() {
-            if (!this.reconnectTimer) {
-                this.reconnectTimer = setTimeout(() => {
-                    this.initWebSocket();
-                }, 3000);
-            }
-        },
-
-        handleSocketEvent(payload) {
-            const msgType = payload.type;
-            const data = payload.data || {};
-
-            if (msgType === 'telemetry_packet') {
-                this.updateLiveTelemetry(data);
-            } else if (msgType === 'state_transition') {
-                this.updateStateTransition(data);
-            } else if (msgType === 'repetition_persisted') {
-                this.handleRepetitionSaved(data);
-            }
-        },
-
-        updateLiveTelemetry(data) {
-            const laneNum = data.lane;
-            const targetLane = this.lanes.find(l => l.lane_number === laneNum) ||
-                               this.lanes.find(l => l.swimmer_id === data.swimmer_id) ||
-                               this.lanes.find(l => l.tag_id === data.tag_id);
-
-            if (!targetLane) return;
-
-            targetLane.is_active = true;
-            if (data.speed_mps !== undefined) targetLane.speed = data.speed_mps;
-            if (data.stroke_rate_spm !== undefined) targetLane.stroke_rate = data.stroke_rate_spm;
-            if (data.x_m !== undefined) targetLane.x_m = data.x_m;
-            if (data.battery_percentage !== undefined) targetLane.battery_percentage = data.battery_percentage;
-            if (data.lap_number !== undefined) targetLane.lap_number = data.lap_number;
-
-            if (targetLane.state === 'SWIMMING' && data.timestamp) {
-                if (!targetLane.push_off_time) {
-                    targetLane.push_off_time = data.timestamp;
                 }
-                targetLane.split_time = Math.max(0.0, data.timestamp - targetLane.push_off_time);
-            }
-        },
+            },
 
-        updateStateTransition(data) {
-            const targetLane = this.lanes.find(l => l.swimmer_id == data.swimmer_id);
-            if (!targetLane) return;
-
-            targetLane.state = data.new_state;
-            const details = data.details || {};
-
-            if (data.new_state === 'SWIMMING') {
-                targetLane.push_off_time = details.push_off_timestamp || data.timestamp;
-                targetLane.rep_number = details.rep_number || targetLane.rep_number;
-                targetLane.set_number = details.set_number || targetLane.set_number;
-            } else if (data.new_state === 'TURN_TRANSITION') {
-                const lap = details.completed_lap;
-                if (lap) {
-                    targetLane.dps = lap.dps || targetLane.dps;
-                    targetLane.breakout_m = lap.breakout_distance_m || targetLane.breakout_m;
-                    targetLane.split_time = lap.split_time_seconds;
+            scheduleReconnect() {
+                if (!this.reconnectTimer) {
+                    this.reconnectTimer = setTimeout(() => {
+                        this.initWebSocket();
+                    }, 3000);
                 }
-            } else if (data.new_state === 'IDLE_AT_WALL') {
-                const rep = details.repetition_metrics;
-                if (rep) {
-                    targetLane.split_time = rep.total_time_seconds;
-                    targetLane.effort_pct = rep.effort_percentage;
-                    targetLane.last_rep_time = rep.total_time_seconds;
+            },
+
+            handleSocketEvent(payload) {
+                const msgType = payload.type;
+                const data = payload.data || {};
+
+                if (msgType === 'telemetry_packet') {
+                    this.updateLiveTelemetry(data);
+                } else if (msgType === 'state_transition') {
+                    this.updateStateTransition(data);
+                } else if (msgType === 'repetition_persisted') {
+                    this.handleRepetitionSaved(data);
                 }
-                targetLane.push_off_time = null;
+            },
+
+            updateLiveTelemetry(data) {
+                const athlete = this.swimmers.find(s => s.swimmer_id == data.swimmer_id) ||
+                                this.swimmers.find(s => s.tag_id === data.tag_id);
+
+                if (athlete) {
+                    athlete.is_active = true;
+                    if (data.speed_mps !== undefined) athlete.speed = data.speed_mps;
+                    if (data.stroke_rate_spm !== undefined) athlete.stroke_rate = data.stroke_rate_spm;
+                    if (data.x_m !== undefined) athlete.x_m = data.x_m;
+                    if (data.battery_percentage !== undefined) athlete.battery_percentage = data.battery_percentage;
+                    if (data.lap_number !== undefined) athlete.lap_number = data.lap_number;
+
+                    if (athlete.state === 'SWIMMING' && data.timestamp) {
+                        if (!athlete.push_off_time) athlete.push_off_time = data.timestamp;
+                        athlete.split_time = Math.max(0.0, data.timestamp - athlete.push_off_time);
+                    }
+                }
+
+                const targetLane = this.lanes.find(l => l.lane_number === data.lane) ||
+                                   this.lanes.find(l => l.swimmer_id == data.swimmer_id);
+                if (targetLane) {
+                    targetLane.is_active = true;
+                    if (data.speed_mps !== undefined) targetLane.speed = data.speed_mps;
+                    if (data.stroke_rate_spm !== undefined) targetLane.stroke_rate = data.stroke_rate_spm;
+                    if (data.x_m !== undefined) targetLane.x_m = data.x_m;
+                    if (data.battery_percentage !== undefined) targetLane.battery_percentage = data.battery_percentage;
+                    if (targetLane.state === 'SWIMMING' && data.timestamp) {
+                        if (!targetLane.push_off_time) targetLane.push_off_time = data.timestamp;
+                        targetLane.split_time = Math.max(0.0, data.timestamp - targetLane.push_off_time);
+                    }
+                }
+            },
+
+            updateStateTransition(data) {
+                const athlete = this.swimmers.find(s => s.swimmer_id == data.swimmer_id);
+                const details = data.details || {};
+
+                if (athlete) {
+                    athlete.state = data.new_state;
+                    if (data.new_state === 'SWIMMING') {
+                        athlete.push_off_time = details.push_off_timestamp || data.timestamp;
+                        athlete.rep_number = details.rep_number || athlete.rep_number;
+                        athlete.set_number = details.set_number || athlete.set_number;
+                        athlete.wall_touch_time = null;
+                    } else if (data.new_state === 'TURN_TRANSITION') {
+                        const lap = details.completed_lap;
+                        if (lap) {
+                            athlete.dps = lap.dps || athlete.dps;
+                            athlete.breakout_m = lap.breakout_distance_m || athlete.breakout_m;
+                            athlete.split_time = lap.split_time_seconds;
+                        }
+                        if (details.turn_duration_seconds) {
+                            athlete.turn_time = details.turn_duration_seconds;
+                        }
+                    } else if (data.new_state === 'IDLE_AT_WALL') {
+                        const rep = details.repetition_metrics;
+                        if (rep) {
+                            athlete.split_time = rep.total_time_seconds;
+                            athlete.effort_pct = rep.effort_percentage;
+                            athlete.last_rep_time = rep.total_time_seconds;
+                        }
+                        athlete.push_off_time = null;
+                        athlete.wall_touch_time = data.timestamp || (Date.now() / 1000);
+                    }
+                }
+
+                const lane = this.lanes.find(l => l.swimmer_id == data.swimmer_id);
+                if (lane) {
+                    lane.state = data.new_state;
+                    if (data.new_state === 'SWIMMING') {
+                        lane.push_off_time = details.push_off_timestamp || data.timestamp;
+                        lane.wall_touch_time = null;
+                    } else if (data.new_state === 'IDLE_AT_WALL') {
+                        const rep = details.repetition_metrics;
+                        if (rep) {
+                            lane.split_time = rep.total_time_seconds;
+                            lane.effort_pct = rep.effort_percentage;
+                            lane.last_rep_time = rep.total_time_seconds;
+                        }
+                        lane.push_off_time = null;
+                        lane.wall_touch_time = data.timestamp || (Date.now() / 1000);
+                    }
+                }
+            },
+
+            handleRepetitionSaved(data) {
+                const athlete = this.swimmers.find(s => s.swimmer_id == data.swimmer_id);
+                if (athlete && data.total_time_seconds) {
+                    athlete.last_rep_time = data.total_time_seconds;
+                    athlete.split_time = data.total_time_seconds;
+                }
+            },
+
+            formatState(state) {
+                if (state === 'IDLE_AT_WALL') return 'WALL IDLE';
+                if (state === 'TURN_TRANSITION') return 'TURN';
+                if (state === 'OUTSIDE_POOL') return 'DECK';
+                if (state === 'SWIMMING') return 'SWIMMING';
+                return 'STANDBY';
+            },
+
+            getStatePillClass(state) {
+                if (state === 'SWIMMING') return 'pill-swimming';
+                if (state === 'TURN_TRANSITION') return 'pill-turn';
+                if (state === 'OUTSIDE_POOL') return 'pill-deck';
+                if (state === 'IDLE_AT_WALL') return 'pill-idle';
+                return 'pill-empty';
+            },
+
+            formatTimer(sec) {
+                if (!sec || sec <= 0) return '00:00.0';
+                const m = Math.floor(sec / 60);
+                const s = Math.floor(sec % 60);
+                const ds = Math.floor((sec % 1) * 10);
+                return `${m.toString().padStart(2, '0')}:${s.toString().padStart(2, '0')}.${ds}`;
             }
-        },
-
-        handleRepetitionSaved(data) {
-            const targetLane = this.lanes.find(l => l.swimmer_id == data.swimmer_id);
-            if (targetLane && data.total_time_seconds) {
-                targetLane.last_rep_time = data.total_time_seconds;
-                targetLane.split_time = data.total_time_seconds;
-            }
-        },
-
-        calculateMarkerPercent(x) {
-            if (!x || x <= 0) return 2;
-            const pct = (x / this.poolLength) * 96;
-            return Math.min(96, Math.max(2, pct));
-        },
-
-        formatState(state) {
-            if (state === 'IDLE_AT_WALL') return 'WALL IDLE';
-            if (state === 'TURN_TRANSITION') return 'TURN';
-            if (state === 'OUTSIDE_POOL') return 'DECK';
-            if (state === 'SWIMMING') return 'SWIMMING';
-            return 'STANDBY';
-        },
-
-        getStatePillClass(state) {
-            if (state === 'SWIMMING') return 'pill-swimming';
-            if (state === 'TURN_TRANSITION') return 'pill-turn';
-            if (state === 'OUTSIDE_POOL') return 'pill-deck';
-            if (state === 'IDLE_AT_WALL') return 'pill-idle';
-            return 'pill-empty';
-        },
-
-        formatTimer(sec) {
-            if (!sec || sec <= 0) return '00:00.0';
-            const m = Math.floor(sec / 60);
-            const s = Math.floor(sec % 60);
-            const ds = Math.floor((sec % 1) * 10);
-            return `${m.toString().padStart(2, '0')}:${s.toString().padStart(2, '0')}.${ds}`;
-        }
-    }));
+        };
+    });
 });
 </script>
 {% endblock %}

@@ -1235,3 +1235,314 @@ body.deck-locked .swimmer-row {
 [data-theme="outdoor"] .deck-unlock-hold-btn.holding .deck-unlock-btn-content {
     color: #ffff00;
 }
+
+
+/* ==========================================================================
+   Multi-Swimmer Lane Support: View Toggle & Sortable Table
+   ========================================================================== */
+
+/* Header View-Mode Toggle Switch */
+.view-toggle-group {
+    display: inline-flex;
+    background-color: #0b1329;
+    border: 2px solid var(--surface-border);
+    border-radius: 12px;
+    padding: 3px;
+    gap: 4px;
+}
+
+.view-toggle-btn {
+    min-height: 42px;
+    padding: 4px 14px;
+    border: none;
+    border-radius: 8px;
+    background-color: transparent;
+    color: var(--text-secondary);
+    font-size: 14px;
+    font-weight: 800;
+    cursor: pointer;
+    touch-action: manipulation;
+    transition: background-color 0.15s ease, color 0.15s ease;
+}
+
+.view-toggle-btn.active {
+    background-color: var(--brand-primary);
+    color: #ffffff;
+    box-shadow: 0 2px 8px rgba(2, 132, 199, 0.4);
+}
+
+/* Responsive Table Container */
+.dashboard-table-container {
+    width: 100%;
+    overflow-x: auto;
+    background-color: var(--surface-color);
+    border: 2px solid var(--surface-border);
+    border-radius: 16px;
+    box-shadow: 0 4px 20px rgba(0, 0, 0, 0.3);
+}
+
+.dashboard-table {
+    width: 100%;
+    border-collapse: collapse;
+    text-align: left;
+    min-width: 880px;
+}
+
+.dashboard-table th {
+    background-color: #0b1329;
+    padding: 14px 16px;
+    font-size: 13px;
+    font-weight: 800;
+    text-transform: uppercase;
+    letter-spacing: 0.5px;
+    color: var(--text-secondary);
+    border-bottom: 2px solid var(--surface-border);
+    position: sticky;
+    top: 0;
+    z-index: 10;
+    user-select: none;
+    -webkit-user-select: none;
+}
+
+.dashboard-table th.sortable {
+    cursor: pointer;
+    touch-action: manipulation;
+    transition: color 0.15s ease;
+}
+
+.dashboard-table th.sortable:hover {
+    color: var(--brand-accent);
+}
+
+.dashboard-table th.active-sort {
+    color: var(--brand-accent);
+    border-bottom-color: var(--brand-accent);
+}
+
+.dashboard-table td {
+    padding: 12px 16px;
+    border-bottom: 1px solid var(--surface-border);
+    font-size: 15px;
+    vertical-align: middle;
+}
+
+.dashboard-table tr:last-child td {
+    border-bottom: none;
+}
+
+.dashboard-table tr:hover {
+    background-color: rgba(255, 255, 255, 0.02);
+}
+
+/* Touch Manual Reorder Buttons (>= 44px) */
+.reorder-btn {
+    min-width: 44px;
+    min-height: 44px;
+    border-radius: 8px;
+    border: 1px solid var(--surface-border);
+    background-color: #0b1329;
+    color: var(--text-primary);
+    font-size: 16px;
+    font-weight: 900;
+    cursor: pointer;
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    touch-action: manipulation;
+    transition: background-color 0.1s ease, border-color 0.1s ease;
+}
+
+.reorder-btn:active {
+    background-color: var(--surface-hover);
+    border-color: var(--brand-accent);
+}
+
+.reorder-btn:disabled {
+    opacity: 0.3;
+    cursor: not-allowed;
+}
+
+/* Sort Action Snapshot Pill */
+.sort-snapshot-pill {
+    display: inline-flex;
+    align-items: center;
+    gap: 6px;
+    font-size: 12px;
+    font-weight: 700;
+    color: var(--brand-accent);
+    background-color: rgba(56, 189, 248, 0.12);
+    border: 1px solid var(--brand-accent);
+    padding: 4px 10px;
+    border-radius: 8px;
+}
+
+/* Outdoor Sunlight Mode Overrides */
+[data-theme="outdoor"] .view-toggle-group {
+    background-color: #ffffff;
+    border: 3px solid #000000;
+}
+
+[data-theme="outdoor"] .view-toggle-btn {
+    color: #000000;
+}
+
+[data-theme="outdoor"] .view-toggle-btn.active {
+    background-color: #000000;
+    color: #ffffff;
+}
+
+[data-theme="outdoor"] .dashboard-table-container {
+    background-color: #ffffff;
+    border: 3px solid #000000;
+    box-shadow: 4px 4px 0 #000000;
+}
+
+[data-theme="outdoor"] .dashboard-table th {
+    background-color: #f1f5f9;
+    color: #000000;
+    border-bottom: 3px solid #000000;
+}
+
+[data-theme="outdoor"] .dashboard-table td {
+    color: #000000;
+    border-bottom: 2px solid #000000;
+}
+
+[data-theme="outdoor"] .reorder-btn {
+    border: 2px solid #000000;
+    background-color: #ffffff;
+    color: #000000;
+}
+
+[data-theme="outdoor"] .reorder-btn:active {
+    background-color: #000000;
+    color: #ffffff;
+}
+
+
+
+/* ==========================================================================
+   Dynamic State Slot: Pace Delta, Live Rest Intervals & Turn Timers
+   ========================================================================== */
+
+.dynamic-state-slot {
+    width: 100%;
+    min-height: 44px;
+    background-color: #0b1329;
+    border: 1px solid var(--surface-border);
+    border-radius: 10px;
+    padding: 6px 12px;
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 8px;
+    box-sizing: border-box;
+}
+
+/* Pace Delta Chips (Swimming State) */
+.delta-chip {
+    display: inline-flex;
+    align-items: center;
+    gap: 4px;
+    padding: 3px 8px;
+    border-radius: 6px;
+    font-family: "SF Mono", Consolas, Menlo, monospace;
+    font-size: 13px;
+    font-weight: 800;
+}
+
+.delta-ahead {
+    background-color: rgba(16, 185, 129, 0.18);
+    color: var(--state-success);
+    border: 1px solid var(--state-success);
+}
+
+.delta-behind {
+    background-color: rgba(245, 158, 11, 0.18);
+    color: var(--state-warning);
+    border: 1px solid var(--state-warning);
+}
+
+.delta-onpace {
+    background-color: rgba(56, 189, 248, 0.15);
+    color: var(--brand-accent);
+    border: 1px solid var(--brand-accent);
+}
+
+.breakout-badge {
+    font-size: 12px;
+    font-weight: 700;
+    color: var(--brand-accent);
+    white-space: nowrap;
+}
+
+/* Rest Elapsed Timer (Idle At Wall State) */
+.rest-interval-chip {
+    display: inline-flex;
+    align-items: center;
+    justify-content: space-between;
+    width: 100%;
+}
+
+.rest-timer-digits {
+    font-family: "SF Mono", Consolas, Menlo, monospace;
+    font-size: 16px;
+    font-weight: 900;
+    color: #ffffff;
+    letter-spacing: -0.5px;
+}
+
+.rest-label {
+    font-size: 11px;
+    font-weight: 800;
+    text-transform: uppercase;
+    color: var(--text-secondary);
+    letter-spacing: 0.5px;
+}
+
+/* Turn Execution Chip */
+.turn-exec-chip {
+    display: inline-flex;
+    align-items: center;
+    gap: 6px;
+    font-size: 13px;
+    font-weight: 800;
+    color: var(--state-warning);
+}
+
+/* Outdoor Sunlight Mode Overrides */
+[data-theme="outdoor"] .dynamic-state-slot {
+    background-color: #f8fafc;
+    border: 2px solid #000000;
+}
+
+[data-theme="outdoor"] .delta-ahead {
+    background-color: #059669;
+    color: #ffffff;
+    border: 2px solid #000000;
+}
+
+[data-theme="outdoor"] .delta-behind {
+    background-color: #d97706;
+    color: #ffffff;
+    border: 2px solid #000000;
+}
+
+[data-theme="outdoor"] .delta-onpace {
+    background-color: #0284c7;
+    color: #ffffff;
+    border: 2px solid #000000;
+}
+
+[data-theme="outdoor"] .rest-timer-digits {
+    color: #000000;
+}
+
+[data-theme="outdoor"] .rest-label {
+    color: #000000;
+}
+
+[data-theme="outdoor"] .breakout-badge {
+    color: #000000;
+    font-weight: 800;
+}

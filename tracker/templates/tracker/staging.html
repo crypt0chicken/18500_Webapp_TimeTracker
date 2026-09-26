@@ -13,13 +13,15 @@
 {% endblock %}
 
 {% block content %}
+<!-- Safe JSON Payloads -->
+<script id="tags-json-data" type="application/json">{{ tags_json|safe }}</script>
+<script id="swimmers-json-data" type="application/json">{{ swimmers_json|safe }}</script>
+<script id="assignments-json-data" type="application/json">{{ assignments_json|safe }}</script>
+
 <div
     x-data="deckStaging({
         sessionId: {{ session.id }},
-        csrfToken: '{{ csrf_token }}',
-        tags: {{ tags_json|safe }},
-        swimmers: {{ swimmers_json|safe }},
-        assignments: {{ assignments_json|safe }}
+        csrfToken: '{{ csrf_token }}'
     })"
     class="staging-container"
     style="display: flex; flex-direction: column; gap: 20px;"
@@ -66,7 +68,7 @@
 
     <!-- Main Grid -->
     <div class="staging-grid">
-        <!-- Left Column: Hardware Tag Pool Overview (Step 4.4) -->
+        <!-- Left Column: Hardware Tag Pool Overview -->
         <div class="panel">
             <div class="panel-title">
                 <span>Hardware Tags</span>
@@ -116,14 +118,12 @@
                         }"
                         @click="handleTagTap(tag)"
                     >
-                        <!-- Top Row: Tag ID + Status Dot + Signal Meter -->
                         <div style="display: flex; align-items: center; justify-content: space-between; width: 100%;">
                             <div style="display: flex; align-items: center; gap: 6px;">
                                 <span class="status-dot" :class="tag.is_online ? 'online' : 'offline'" :title="tag.is_online ? 'Online' : 'Offline'"></span>
                                 <span style="font-size: 16px; font-weight: 800;" x-text="tag.tag_id"></span>
                             </div>
 
-                            <!-- 4-Bar Signal Indicator -->
                             <div class="signal-meter" :title="(tag.rssi || -99) + ' dBm'">
                                 <div class="signal-bar bar-1" :class="{ 'active': getSignalLevel(tag.rssi) >= 1, [getSignalClass(tag.rssi)]: true }"></div>
                                 <div class="signal-bar bar-2" :class="{ 'active': getSignalLevel(tag.rssi) >= 2, [getSignalClass(tag.rssi)]: true }"></div>
@@ -132,7 +132,6 @@
                             </div>
                         </div>
 
-                        <!-- Middle Row: Swimmer Label or Spare Badge -->
                         <div style="margin: 4px 0; text-align: left; width: 100%;">
                             <span
                                 x-show="getAssignedSwimmerNameForTag(tag.tag_id)"
@@ -147,7 +146,6 @@
                             </span>
                         </div>
 
-                        <!-- Bottom Row: Battery Meter Bar & Percentage -->
                         <div class="battery-meter-container">
                             <div class="battery-track">
                                 <div
@@ -165,18 +163,10 @@
                     </button>
                 </template>
             </div>
-
-            <div
-                x-show="filteredTags().length === 0"
-                style="color: var(--text-secondary); text-align: center; padding: 24px 0; font-size: 14px;"
-            >
-                No tags match the selected pool filter.
-            </div>
         </div>
 
         <!-- Right Column: Lane Layout & Team Roster -->
         <div style="display: flex; flex-direction: column; gap: 24px;">
-            <!-- Active Lanes (1 - 8) -->
             <div class="panel">
                 <div class="panel-title">
                     <span>Pool Lanes (1 &ndash; 8)</span>
@@ -204,7 +194,6 @@
                                 ></span>
                             </div>
 
-                            <!-- List of Swimmers Staged in this Lane -->
                             <div style="display: flex; flex-direction: column; gap: 8px;">
                                 <template x-for="item in getLaneSwimmers({{ lane_num }})" :key="item.swimmer_id">
                                     <div class="lane-swimmer-chip">
@@ -345,13 +334,6 @@
                             </div>
                         </button>
                     </template>
-
-                    <div
-                        x-show="availableSpareTags().length === 0"
-                        style="text-align: center; color: var(--text-secondary); padding: 24px 0;"
-                    >
-                        No spare tags available. Register or unassign tags first.
-                    </div>
                 </div>
             </div>
         </div>
@@ -360,307 +342,229 @@
 
 <script>
 document.addEventListener('alpine:init', () => {
-    Alpine.data('deckStaging', (config) => ({
-        sessionId: config.sessionId,
-        csrfToken: config.csrfToken,
-        tags: config.tags || [],
-        swimmers: config.swimmers || [],
-        assignments: config.assignments || [],
-
-        activeTab: 'unassigned', // 'unassigned' | 'all' | 'assigned'
-        selectedTag: null,
-        selectedSwimmer: null,
-
-        swapModalOpen: false,
-        swimmerToSwap: null,
-        socket: null,
-
-        init() {
-            this.initWebSocket();
-        },
-
-        initWebSocket() {
-            const protocol = window.location.protocol === 'https:' ? 'wss:' : 'ws:';
-            const wsUrl = `${protocol}//${window.location.host}/ws/pool/${this.sessionId}/`;
-
-            try {
-                this.socket = new WebSocket(wsUrl);
-
-                this.socket.onmessage = (event) => {
-                    try {
-                        const payload = JSON.parse(event.data);
-                        this.handleLiveTelemetry(payload);
-                    } catch (err) {
-                        console.error('WebSocket JSON parsing error:', err);
-                    }
-                };
-
-                this.socket.onerror = (err) => {
-                    console.warn('Staging WebSocket error:', err);
-                };
-            } catch (e) {
-                console.warn('Unable to initialize staging WebSocket:', e);
+    Alpine.data('deckStaging', (config) => {
+        const getJson = (id) => {
+            const el = document.getElementById(id);
+            if (el && el.textContent.trim()) {
+                try { return JSON.parse(el.textContent); } catch (e) { return []; }
             }
-        },
+            return [];
+        };
 
-        handleLiveTelemetry(payload) {
-            const data = payload.data || payload;
-            const tagId = data.tag_id;
-            if (!tagId) return;
+        return {
+            sessionId: config.sessionId,
+            csrfToken: config.csrfToken,
+            tags: getJson('tags-json-data'),
+            swimmers: getJson('swimmers-json-data'),
+            assignments: getJson('assignments-json-data'),
 
-            const targetTag = this.tags.find(t => t.tag_id === tagId);
-            if (targetTag) {
-                targetTag.is_online = true;
-                if (data.battery_percentage !== undefined) {
-                    targetTag.battery_percentage = data.battery_percentage;
+            activeTab: 'unassigned',
+            selectedTag: null,
+            selectedSwimmer: null,
+            swapModalOpen: false,
+            swimmerToSwap: null,
+            socket: null,
+
+            init() {
+                this.initWebSocket();
+            },
+
+            initWebSocket() {
+                const protocol = window.location.protocol === 'https:' ? 'wss:' : 'ws:';
+                const wsUrl = `${protocol}//${window.location.host}/ws/pool/${this.sessionId}/`;
+
+                try {
+                    this.socket = new WebSocket(wsUrl);
+                    this.socket.onmessage = (event) => {
+                        try {
+                            const payload = JSON.parse(event.data);
+                            this.handleLiveTelemetry(payload);
+                        } catch (err) {}
+                    };
+                } catch (e) {}
+            },
+
+            handleLiveTelemetry(payload) {
+                const data = payload.data || payload;
+                const tagId = data.tag_id;
+                if (!tagId) return;
+
+                const targetTag = this.tags.find(t => t.tag_id === tagId);
+                if (targetTag) {
+                    targetTag.is_online = true;
+                    if (data.battery_percentage !== undefined) targetTag.battery_percentage = data.battery_percentage;
+                    if (data.rssi !== undefined) targetTag.rssi = data.rssi;
                 }
-                if (data.rssi !== undefined) {
-                    targetTag.rssi = data.rssi;
-                }
-            }
-        },
+            },
 
-        getSignalLevel(rssi) {
-            if (rssi === undefined || rssi === null) return 0;
-            if (rssi >= -65) return 4;
-            if (rssi >= -75) return 3;
-            if (rssi >= -85) return 2;
-            if (rssi >= -95) return 1;
-            return 0;
-        },
+            getSignalLevel(rssi) {
+                if (rssi === undefined || rssi === null) return 0;
+                if (rssi >= -65) return 4;
+                if (rssi >= -75) return 3;
+                if (rssi >= -85) return 2;
+                if (rssi >= -95) return 1;
+                return 0;
+            },
 
-        getSignalClass(rssi) {
-            const level = this.getSignalLevel(rssi);
-            if (level >= 4) return 'strong';
-            if (level === 3) return 'good';
-            if (level === 2) return 'fair';
-            return 'weak';
-        },
+            getSignalClass(rssi) {
+                const level = this.getSignalLevel(rssi);
+                if (level >= 4) return 'strong';
+                if (level === 3) return 'good';
+                if (level === 2) return 'fair';
+                return 'weak';
+            },
 
-        unassignedTags() {
-            return this.tags.filter(t => !this.isTagAssigned(t.id));
-        },
+            unassignedTags() {
+                return this.tags.filter(t => !this.isTagAssigned(t.id));
+            },
 
-        filteredTags() {
-            if (this.activeTab === 'unassigned') {
-                return this.unassignedTags();
-            }
-            if (this.activeTab === 'assigned') {
-                return this.tags.filter(t => this.isTagAssigned(t.id));
-            }
-            return this.tags;
-        },
+            filteredTags() {
+                if (this.activeTab === 'unassigned') return this.unassignedTags();
+                if (this.activeTab === 'assigned') return this.tags.filter(t => this.isTagAssigned(t.id));
+                return this.tags;
+            },
 
-        handleTagTap(tag) {
-            if (this.selectedTag && this.selectedTag.id === tag.id) {
+            handleTagTap(tag) {
+                this.selectedTag = (this.selectedTag && this.selectedTag.id === tag.id) ? null : tag;
+            },
+
+            handleSwimmerTap(swimmer) {
+                this.selectedSwimmer = (this.selectedSwimmer && this.selectedSwimmer.id === swimmer.id) ? null : swimmer;
+            },
+
+            isReadyToAssign() {
+                return this.selectedTag !== null && this.selectedSwimmer !== null;
+            },
+
+            guideInstructionText() {
+                if (!this.selectedTag && !this.selectedSwimmer) return '1. Tap an available Hardware Tag to begin';
+                if (this.selectedTag && !this.selectedSwimmer) return '2. Tap a Swimmer from the team roster';
+                if (!this.selectedTag && this.selectedSwimmer) return 'Tap an available Hardware Tag to pair with ' + this.selectedSwimmer.name;
+                return '3. Tap Lane (1 to 8) to complete pairing!';
+            },
+
+            resetSelection() {
                 this.selectedTag = null;
-            } else {
-                this.selectedTag = tag;
-            }
-        },
-
-        handleSwimmerTap(swimmer) {
-            if (this.selectedSwimmer && this.selectedSwimmer.id === swimmer.id) {
                 this.selectedSwimmer = null;
-            } else {
-                this.selectedSwimmer = swimmer;
-            }
-        },
+            },
 
-        isReadyToAssign() {
-            return this.selectedTag !== null && this.selectedSwimmer !== null;
-        },
+            getLaneSwimmers(laneNumber) {
+                return this.assignments.filter(a => a.lane_number === laneNumber);
+            },
 
-        guideInstructionText() {
-            if (!this.selectedTag && !this.selectedSwimmer) {
-                return '1. Tap an available Hardware Tag to begin';
-            }
-            if (this.selectedTag && !this.selectedSwimmer) {
-                return '2. Tap a Swimmer from the team roster';
-            }
-            if (!this.selectedTag && this.selectedSwimmer) {
-                return 'Tap an available Hardware Tag to pair with ' + this.selectedSwimmer.name;
-            }
-            return '3. Tap Lane (1 to 8) to complete pairing!';
-        },
-
-        resetSelection() {
-            this.selectedTag = null;
-            this.selectedSwimmer = null;
-        },
-
-        getLaneSwimmers(laneNumber) {
-            return this.assignments.filter(a => a.lane_number === laneNumber);
-        },
-
-        isTagAssigned(tagId) {
-            return this.assignments.some(a => {
-                const tagObj = this.tags.find(t => t.id === tagId);
-                return tagObj && a.tag_id === tagObj.tag_id;
-            });
-        },
-
-        getAssignedSwimmerNameForTag(tagIdStr) {
-            const assignment = this.assignments.find(a => a.tag_id === tagIdStr);
-            return assignment ? assignment.swimmer_name : '';
-        },
-
-        openSwapModal(swimmerId) {
-            const sw = this.swimmers.find(s => s.id === swimmerId);
-            if (sw) {
-                this.swimmerToSwap = sw;
-                this.swapModalOpen = true;
-            }
-        },
-
-        closeSwapModal() {
-            this.swapModalOpen = false;
-            this.swimmerToSwap = null;
-        },
-
-        availableSpareTags() {
-            return [...this.tags].sort((a, b) => {
-                const aAssigned = this.isTagAssigned(a.id);
-                const bAssigned = this.isTagAssigned(b.id);
-                if (aAssigned === bAssigned) return 0;
-                return aAssigned ? 1 : -1;
-            });
-        },
-
-        async executeSwap(newTagId) {
-            if (!this.swimmerToSwap || !newTagId) return;
-
-            try {
-                const res = await fetch(`/api/tracker/session/${this.sessionId}/swap-tag/`, {
-                    method: 'POST',
-                    headers: {
-                        'Content-Type': 'application/json',
-                        'X-CSRFToken': this.csrfToken
-                    },
-                    body: JSON.stringify({
-                        swimmer_id: this.swimmerToSwap.id,
-                        new_tag_id: newTagId
-                    })
+            isTagAssigned(tagId) {
+                return this.assignments.some(a => {
+                    const tagObj = this.tags.find(t => t.id === tagId);
+                    return tagObj && a.tag_id === tagObj.tag_id;
                 });
+            },
 
-                if (!res.ok) {
-                    const err = await res.json();
-                    alert('Swap error: ' + (err.error || 'Server error'));
-                    return;
-                }
+            getAssignedSwimmerNameForTag(tagIdStr) {
+                const assignment = this.assignments.find(a => a.tag_id === tagIdStr);
+                return assignment ? assignment.swimmer_name : '';
+            },
 
-                const data = await res.json();
-                const assign = data.assignment;
-
-                this.assignments = this.assignments.filter(a => a.swimmer_id !== assign.swimmer_id);
-                this.assignments = this.assignments.filter(a => a.tag_id !== assign.tag_id);
-                this.assignments.push(assign);
-
-                const sw = this.swimmers.find(s => s.id === assign.swimmer_id);
+            openSwapModal(swimmerId) {
+                const sw = this.swimmers.find(s => s.id === swimmerId);
                 if (sw) {
-                    sw.tag_id = assign.tag_id;
-                    sw.lane_number = assign.lane_number;
+                    this.swimmerToSwap = sw;
+                    this.swapModalOpen = true;
                 }
+            },
 
-                this.tags.forEach(t => {
-                    if (t.tag_id === assign.tag_id) {
-                        t.assigned_swimmer_id = assign.swimmer_id;
-                    } else if (t.assigned_swimmer_id === assign.swimmer_id) {
-                        t.assigned_swimmer_id = null;
-                    }
+            closeSwapModal() {
+                this.swapModalOpen = false;
+                this.swimmerToSwap = null;
+            },
+
+            availableSpareTags() {
+                return [...this.tags].sort((a, b) => {
+                    const aAssigned = this.isTagAssigned(a.id);
+                    const bAssigned = this.isTagAssigned(b.id);
+                    if (aAssigned === bAssigned) return 0;
+                    return aAssigned ? 1 : -1;
                 });
+            },
 
-                this.closeSwapModal();
-            } catch (e) {
-                console.error('Error executing tag swap:', e);
-                alert('Network connection error while swapping tag.');
-            }
-        },
+            async executeSwap(newTagId) {
+                if (!this.swimmerToSwap || !newTagId) return;
 
-        async handleLaneTap(laneNumber) {
-            if (!this.isReadyToAssign()) return;
+                try {
+                    const res = await fetch(`/api/tracker/session/${this.sessionId}/swap-tag/`, {
+                        method: 'POST',
+                        headers: { 'Content-Type': 'application/json', 'X-CSRFToken': this.csrfToken },
+                        body: JSON.stringify({ swimmer_id: this.swimmerToSwap.id, new_tag_id: newTagId })
+                    });
+                    if (!res.ok) return;
 
-            const payload = {
-                tag_id: this.selectedTag.tag_id,
-                swimmer_id: this.selectedSwimmer.id,
-                lane_number: laneNumber
-            };
+                    const data = await res.json();
+                    const assign = data.assignment;
 
-            try {
-                const res = await fetch(`/api/tracker/session/${this.sessionId}/pair/`, {
-                    method: 'POST',
-                    headers: {
-                        'Content-Type': 'application/json',
-                        'X-CSRFToken': this.csrfToken
-                    },
-                    body: JSON.stringify(payload)
-                });
+                    this.assignments = this.assignments.filter(a => a.swimmer_id !== assign.swimmer_id && a.tag_id !== assign.tag_id);
+                    this.assignments.push(assign);
 
-                if (!res.ok) {
-                    const err = await res.json();
-                    alert('Pairing error: ' + (err.error || 'Server error'));
-                    return;
-                }
-
-                const data = await res.json();
-                const newAssign = data.assignment;
-
-                this.assignments = this.assignments.filter(a => a.swimmer_id !== newAssign.swimmer_id);
-                this.assignments = this.assignments.filter(a => a.tag_id !== newAssign.tag_id);
-                this.assignments.push(newAssign);
-
-                const sw = this.swimmers.find(s => s.id === newAssign.swimmer_id);
-                if (sw) {
-                    sw.tag_id = newAssign.tag_id;
-                    sw.lane_number = newAssign.lane_number;
-                }
-
-                this.tags.forEach(t => {
-                    if (t.tag_id === newAssign.tag_id) {
-                        t.assigned_swimmer_id = newAssign.swimmer_id;
-                    } else if (t.assigned_swimmer_id === newAssign.swimmer_id) {
-                        t.assigned_swimmer_id = null;
-                    }
-                });
-
-                this.resetSelection();
-            } catch (e) {
-                console.error('Network error during pairing:', e);
-                alert('Network connection error.');
-            }
-        },
-
-        async unassignSwimmer(swimmerId) {
-            try {
-                const res = await fetch(`/api/tracker/session/${this.sessionId}/unassign/`, {
-                    method: 'POST',
-                    headers: {
-                        'Content-Type': 'application/json',
-                        'X-CSRFToken': this.csrfToken
-                    },
-                    body: JSON.stringify({ swimmer_id: swimmerId })
-                });
-
-                if (res.ok) {
-                    this.assignments = this.assignments.filter(a => a.swimmer_id !== swimmerId);
-
-                    const sw = this.swimmers.find(s => s.id === swimmerId);
-                    if (sw) {
-                        sw.tag_id = null;
-                        sw.lane_number = null;
-                    }
+                    const sw = this.swimmers.find(s => s.id === assign.swimmer_id);
+                    if (sw) { sw.tag_id = assign.tag_id; sw.lane_number = assign.lane_number; }
 
                     this.tags.forEach(t => {
-                        if (t.assigned_swimmer_id === swimmerId) {
-                            t.assigned_swimmer_id = null;
-                        }
+                        if (t.tag_id === assign.tag_id) t.assigned_swimmer_id = assign.swimmer_id;
+                        else if (t.assigned_swimmer_id === assign.swimmer_id) t.assigned_swimmer_id = null;
                     });
-                }
-            } catch (e) {
-                console.error('Error unassigning swimmer:', e);
+                    this.closeSwapModal();
+                } catch (e) {}
+            },
+
+            async handleLaneTap(laneNumber) {
+                if (!this.isReadyToAssign()) return;
+
+                const payload = {
+                    tag_id: this.selectedTag.tag_id,
+                    swimmer_id: this.selectedSwimmer.id,
+                    lane_number: laneNumber
+                };
+
+                try {
+                    const res = await fetch(`/api/tracker/session/${this.sessionId}/pair/`, {
+                        method: 'POST',
+                        headers: { 'Content-Type': 'application/json', 'X-CSRFToken': this.csrfToken },
+                        body: JSON.stringify(payload)
+                    });
+                    if (!res.ok) return;
+
+                    const data = await res.json();
+                    const newAssign = data.assignment;
+
+                    this.assignments = this.assignments.filter(a => a.swimmer_id !== newAssign.swimmer_id && a.tag_id !== newAssign.tag_id);
+                    this.assignments.push(newAssign);
+
+                    const sw = this.swimmers.find(s => s.id === newAssign.swimmer_id);
+                    if (sw) { sw.tag_id = newAssign.tag_id; sw.lane_number = newAssign.lane_number; }
+
+                    this.tags.forEach(t => {
+                        if (t.tag_id === newAssign.tag_id) t.assigned_swimmer_id = newAssign.swimmer_id;
+                        else if (t.assigned_swimmer_id === newAssign.swimmer_id) t.assigned_swimmer_id = null;
+                    });
+                    this.resetSelection();
+                } catch (e) {}
+            },
+
+            async unassignSwimmer(swimmerId) {
+                try {
+                    const res = await fetch(`/api/tracker/session/${this.sessionId}/unassign/`, {
+                        method: 'POST',
+                        headers: { 'Content-Type': 'application/json', 'X-CSRFToken': this.csrfToken },
+                        body: JSON.stringify({ swimmer_id: swimmerId })
+                    });
+                    if (res.ok) {
+                        this.assignments = this.assignments.filter(a => a.swimmer_id !== swimmerId);
+                        const sw = this.swimmers.find(s => s.id === swimmerId);
+                        if (sw) { sw.tag_id = null; sw.lane_number = null; }
+                        this.tags.forEach(t => { if (t.assigned_swimmer_id === swimmerId) t.assigned_swimmer_id = null; });
+                    }
+                } catch (e) {}
             }
-        }
-    }));
+        };
+    });
 });
 </script>
 {% endblock %}

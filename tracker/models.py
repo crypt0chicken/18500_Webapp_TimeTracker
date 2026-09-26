@@ -271,14 +271,16 @@ class LaneAssignment(models.Model):
         validators=[MinValueValidator(1), MaxValueValidator(8)],
         help_text="Assigned pool lane number (1 to 8)",
     )
+    order_in_lane = models.PositiveSmallIntegerField(
+        default=1,
+        help_text="Position order in lane (1 = lead-off swimmer, 2 = second, etc.)",
+    )
     staged_at = models.DateTimeField(auto_now=True)
 
     class Meta:
         unique_together = ('session', 'swimmer')
-        ordering = ['lane_number', 'staged_at']
+        ordering = ['lane_number', 'order_in_lane', 'staged_at']
 
     def __str__(self):
         tag_str = self.tag.tag_id if self.tag else "No Tag"
-        return f"Lane {self.lane_number}: {self.swimmer.user.username} ({tag_str})"
-
-
+        return f"Lane {self.lane_number} (#{self.order_in_lane}): {self.swimmer.user.username} ({tag_str})"
