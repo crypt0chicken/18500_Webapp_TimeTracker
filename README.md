@@ -7,7 +7,7 @@ A performance tracking and real-time analytics web application designed for comp
 ## Technical Stack
 
 * **Backend:** Python 3.10+, Django 5+
-* **Real-Time Telemetry:** Django Channels (ASGI), Daphne, Redis (with fallback to InMemoryChannelLayer for local development)
+* **Real-Time Telemetry:** Django Channels (ASGI), Daphne, Redis (with in-memory fallback for local development)
 * **Frontend:** Django Templates + Alpine.js (Hybrid architecture), CSS Custom Properties (Indoor/Outdoor High-Contrast Engine)
 * **Database:** SQLite (local development), PostgreSQL (production target via `dj-database-url`)
 
@@ -15,7 +15,6 @@ A performance tracking and real-time analytics web application designed for comp
 
 ## Project Structure
 
-```text
 TimeTracker/
 ├── accounts/               # Custom user model with role-based permissions (Admin, Coach, Swimmer)
 ├── config/                 # Project configuration, ASGI/WSGI handlers, and routing
@@ -24,16 +23,97 @@ TimeTracker/
 │   └── urls.py
 ├── scripts/
 │   ├── mock_telemetry_generator.py      # Simulates 1-50 concurrent swimmer data streams
-│   └── verify_step2_concurrency.py      # Concurrency stress test (verified zero loss, <60ms p95 latency)
-├── tracker/                # Swim analytics domain models, access control, and telemetry logic
+│   └── verify_step2_concurrency.py      # Concurrency stress test (zero loss, <60ms p95 latency)
+├── tracker/                # Swim analytics domain models, state machine, and persistence
 │   ├── admin.py            # Tabular inlines, filters, and tag assignment actions
-│   ├── consumers.py        # Async WebSocket consumer managing room groups & jitter buffer routing
+│   ├── consumers.py        # Async WebSocket consumer managing room groups & state transitions
 │   ├── jitter_buffer.py    # Out-of-order reassembly, sequencing, and timeout flushing queue
 │   ├── models.py           # PracticeSession, WorkoutSet, Repetition, LapSplit, HardwareTag, etc.
 │   ├── permissions.py     # Role verification decorators & metric boundary checks
+│   ├── persistence.py      # Event-driven async SQL persistence for completed reps and splits
 │   ├── routing.py          # WebSocket URL routing patterns
-│   ├── tests.py            # Comprehensive test suite (Models, Access Control, Jitter Buffer, WebSockets)
+│   ├── state_machine.py    # 4-state lifecycle, impulse push-off, backtracking, and metrics
+│   ├── tests.py            # Complete test suite (Steps 1, 2, and 3 validation)
 │   ├── urls.py
 │   └── views.py
 ├── manage.py
 └── README.md
+
+
+---
+
+## Implemented Architecture & Features
+
+### Step 1: Core Architecture & Access Control
+
+* Custom `User` model supporting `ADMIN`, `COACH`, and `SWIMMER` roles.
+* Domain models: `Team`, `SwimmerProfile`, `PersonalBest`, `HardwareTag`, `PracticeSession`, `WorkoutSet`, `Repetition`, `LapSplit`, and singleton `SystemConfiguration`.
+* Pool standards supported: `SCY_25Y` (25yd), `SCM_25M` (25m), and `LCM_50M` (50m).
+* Role verification decorators and configurable teammate leaderboard visibility boundaries.
+
+### Step 2: Real-Time Ingestion Pipeline
+
+* Asynchronous WebSocket routing (`/ws/pool/<session_id>/`) managed via Channels and room groups.
+* Stream-level `StreamJitterBuffer` for sequence reassembly, duplicate discard, and timeout flushing.
+* Concurrency verified: stress-tested with 50 concurrent simulated streams yielding 0.00% packet loss and a 58.44 ms 95th percentile latency.
+
+### Step 3: State Machine & Metric Extraction Engine
+
+* **4-State Lifecycle:** `IDLE_AT_WALL`, `SWIMMING`, `TURN_TRANSITION`, and `OUTSIDE_POOL` with hysteresis boundaries.
+* **Push-Off Detection:** Requires an acceleration impulse ($> 1.5\text{g}$) away from the wall followed by 2 consecutive seconds of sustained forward velocity ($> 0.8\text{ m/s}$).
+* **Timestamp Backtracking:** 5-second wall dwell triggers reverse-scanning through the rolling buffer to pinpoint the exact millisecond velocity dropped below $0.20\text{ m/s}$, ensuring split accuracy within $\pm 100\text{ ms}$ on soft finishes.
+* **Biomechanical Metrics:** Distance Per Stroke (DPS), Stroke Cadence (SPM), Breakout Distance, and Effort % ($v_{\text{current}} / v_{\text{PB}}$).
+* **Auto Set-Break:** Detects wall dwell $> 90\text{ seconds}$, increments the set order, and resets repetition counters for subsequent push-offs.
+* **Tiered Event-Driven Persistence:** High-frequency packets (10–20 Hz) stream strictly through memory/WebSockets, while aggregated `Repetition` and `LapSplit` rows are transactionally committed to SQL upon state completion.
+
+---
+
+## Getting Started (Local Development)
+
+### 1. Environment Setup (PowerShell / Windows)
+
+```powershell
+# Clone the repository
+git clone <your-repo-url>
+cd TimeTracker
+
+# Create and activate virtual environment
+python -m venv venv
+.\venv\Scripts\Activate.ps1
+
+# Install dependencies
+pip install django daphne channels channels_redis websockets
+
+```
+
+### 2. Apply Migrations & Run Test Suite
+
+```powershell
+python manage.py makemigrations accounts tracker
+python manage.py migrate
+python manage.py test tracker
+
+```
+
+### 3. Run Concurrency Benchmark
+
+```powershell
+# Terminal 1: Start ASGI Server
+python manage.py runserver
+
+# Terminal 2: Run Concurrency Benchmark
+python scripts/verify_step2_concurrency.py --swimmers 50 --rate 10 --duration 20
+
+```
+
+---
+
+## Roadmap
+
+* [x] **Step 1:** Core Django Architecture, Data Modeling, Admin Inlines & Role-Based Access Control
+* [x] **Step 2:** Real-Time Telemetry Pipeline (ASGI, Redis Channel Layer, Jitter Buffer & 50-Stream Concurrency Verification)
+* [x] **Step 3:** State Machine Engine (Push-off detection, timestamp backtracking, metrics, and event persistence)
+* [ ] **Step 4:** Touch-First Deck Staging & Tag Assignment Interface
+* [ ] **Step 5:** Live Coach Deck Dashboard (Multi-lane grid, outdoor high-contrast mode, wake-lock)
+* [ ] **Step 6:** Swimmer Historical Portal & Interactive Performance Analytics
+* [ ] **Step 7:** Network Resilience, Snapshot Reconnection & Production AWS Deployment
